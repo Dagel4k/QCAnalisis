@@ -1,0 +1,30 @@
+{
+  "name": "@scriptc/dev-tools",
+  "version": "0.1.0",
+  "description": "Meta devDependency con ESLint, TS, ts-prune, jscpd y utilidades.",
+  "private": false,
+  "type": "commonjs",
+  "bin": {
+    "dev-tools-generate-eslint": "bin/generate-eslint.js"
+  },
+  "keywords": [
+    "eslint",
+    "typescript",
+    "ts-prune",
+    "jscpd",
+    "lint",
+    "report"
+  ],
+  "dependencies": {
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.4",
+    "@typescript-eslint/parser": "^6.7.4",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-sonarjs": "^0.24.0",
+    "eslint-plugin-unicorn": "^48.0.1",
+    "typescript": "^5.3.3",
+    "ts-prune": "^0.10.3",
+    "jscpd": "^4.0.4",
+    "shiki": "^1.3.0"
+  }
+}

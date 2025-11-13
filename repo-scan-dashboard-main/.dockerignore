@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.env
+.work
+storage
+*.md
+!README.md
+.vscode
+.idea
+dist
+build

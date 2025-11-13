@@ -1,0 +1,37 @@
+# General
+.DS_Store
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Node
+node_modules/
+**/node_modules/
+dist/
+build/
+.vite/
+coverage/
+
+# Local env
+.env
+**/.env
+
+# Generated reports and work dirs
+reports/
+.work/
+storage/
+repo-scan-dashboard-main/storage/
+repo-scan-dashboard-main/.work/
+
+# Dev-tools tarballs and caches
+packages/dev-tools/*.tgz
+*.tgz
+
+# OS/editor
+.idea/
+.vscode/
+*.swp
+
+# Misc large files not for VCS
+libro.epub

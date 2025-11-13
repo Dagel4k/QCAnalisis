@@ -1,0 +1,29 @@
+{
+  "name": "scriptc-code-reviewer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CLI para revisar ramas (GitLab) con ESLint, ts-prune, jscpd y reporte HTML.",
+  "type": "commonjs",
+  "bin": {
+    "review-gitlab-branches": "bin/review-gitlab-branches.js",
+    "generate-eslint-config": "scripts/generate-eslintrc.js"
+  },
+  "scripts": {
+    "report:html": "node generate-html-lint-report.js",
+    "review": "node bin/review-gitlab-branches.js",
+    "eslint:gen": "node scripts/generate-eslintrc.js --preset typescript-default",
+    "dev-tools:pack": "cd packages/dev-tools && npm pack"
+  },
+  "devDependencies": {
+    "@scriptc/dev-tools": "file:packages/dev-tools/scriptc-dev-tools-0.1.0.tgz",
+    "scriptc-code-reviewer": "file:"
+  },
+  "keywords": [
+    "eslint",
+    "report",
+    "gitlab",
+    "review",
+    "ts-prune",
+    "jscpd"
+  ]
+}

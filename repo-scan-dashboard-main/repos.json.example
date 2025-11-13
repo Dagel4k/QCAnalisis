@@ -1,0 +1,15 @@
+[
+  {
+    "slug": "mi-proyecto",
+    "name": "Mi Proyecto",
+    "repoUrl": "https://gitlab.com/organization/mi-proyecto.git",
+    "imageUrl": "https://example.com/logo.png",
+    "description": "Descripción del proyecto"
+  },
+  {
+    "slug": "otro-proyecto",
+    "name": "Otro Proyecto",
+    "repoUrl": "https://gitlab.com/organization/otro-proyecto.git",
+    "description": "Otro proyecto de ejemplo"
+  }
+]

@@ -1,0 +1,15 @@
+[
+  {
+    "slug": "cajera-web",
+    "name": "Cajera Web",
+    "repoUrl": "https://gitlab.prestavale.mx/zazpayv2/cajera-web.git",
+    "description": "Aplicación web de cajera"
+  },
+  {
+    "slug": "test-pagos",
+    "name": "Test de Pagos",
+    "repoUrl": "https://gitlab.prestavale.mx/Daniel_P/TestPagos.git",
+    "description": "Suite de testing de pagos"
+  }
+]
+
