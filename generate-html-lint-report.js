@@ -7,6 +7,10 @@ const { pathToFileURL } = require('url');
 let codeToHtml;
 let lintGlobs;
 let forceInternalEslint = process.env.REPORT_USE_INTERNAL_ESLINT_CONFIG === '1';
+let noTsPrune = process.env.REPORT_NO_TSPRUNE === '1';
+let noJscpd = process.env.REPORT_NO_JSCPD === '1';
+let maxIssuesPerFile = parseInt(process.env.REPORT_MAX_ISSUES_PER_FILE || '', 10);
+if (!Number.isFinite(maxIssuesPerFile) || maxIssuesPerFile <= 0) maxIssuesPerFile = 100;
 
 function canResolve(mod) {
   try {
@@ -60,6 +64,23 @@ function parseGlobs() {
     }
   }
   return undefined;
+}
+
+function parseExtraFlags() {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--no-ts-prune') noTsPrune = true;
+    else if (a === '--no-jscpd') noJscpd = true;
+    else if (a === '--max-issues-per-file' && i + 1 < args.length) {
+      const n = parseInt(args[i + 1], 10);
+      if (Number.isFinite(n) && n > 0) maxIssuesPerFile = n;
+      i++;
+    } else if (a.startsWith('--max-issues-per-file=')) {
+      const n = parseInt(a.slice('--max-issues-per-file='.length), 10);
+      if (Number.isFinite(n) && n > 0) maxIssuesPerFile = n;
+    }
+  }
 }
 
 /**
@@ -254,7 +275,7 @@ function renderFileTree(tree, level = 0) {
       html += `
         <div class="tree-folder" style="margin-left: ${level * 4}px;">
           <div class="tree-folder-header" onclick="toggleFolder(this)">
-            <span class="tree-icon folder-icon">📁</span>
+            <span class="tree-icon folder-icon"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-folder" /></svg></span>
             <span class="tree-name">${escapeHtml(name)}</span>
             <span class="tree-stats">
               ${node.errorCount > 0 ? `<span class="tree-badge tree-badge-error">${node.errorCount}</span>` : ''}
@@ -270,7 +291,7 @@ function renderFileTree(tree, level = 0) {
       const fileId = `file-${node.path.replace(/[^a-zA-Z0-9]/g, '-')}`;
       html += `
         <div class="tree-file" style="margin-left: ${level * 4}px;" onclick="scrollToFile('${fileId}')">
-          <span class="tree-icon">📄</span>
+          <span class="tree-icon"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-file" /></svg></span>
           <span class="tree-name">${escapeHtml(name)}</span>
           <span class="tree-stats">
             ${node.errorCount > 0 ? `<span class="tree-badge tree-badge-error">${node.errorCount}</span>` : ''}
@@ -289,14 +310,18 @@ function renderFileTree(tree, level = 0) {
  */
 function runTsPrune() {
   try {
+    if (noTsPrune) {
+      console.log('[INFO] Skipping ts-prune by flag');
+      return { count: 0, items: [] };
+    }
     // Requiere tsconfig.json. Si no existe, lo omitimos silenciosamente (con aviso breve).
     const tsconfigPath = path.join(process.cwd(), 'tsconfig.json');
     if (!fs.existsSync(tsconfigPath)) {
-      console.log('⚠️  Skipping ts-prune (no tsconfig.json)');
+      console.log('[WARN] Skipping ts-prune (no tsconfig.json)');
       return { count: 0, items: [] };
     }
 
-    console.log('🔍 Running ts-prune...');
+    console.log('[RUN] Running ts-prune...');
     // Prefer local binary if available to avoid network
     const localBin = path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'ts-prune.cmd' : 'ts-prune');
     const nestedBin = path.join(process.cwd(), 'node_modules', '@scriptc', 'dev-tools', 'node_modules', '.bin', process.platform === 'win32' ? 'ts-prune.cmd' : 'ts-prune');
@@ -325,7 +350,7 @@ function runTsPrune() {
 
     return { count: unusedExports.length, items: unusedExports };
   } catch (error) {
-    console.warn('⚠️  ts-prune failed:', error.message);
+    console.warn('[WARN] ts-prune failed:', error.message);
     return { count: 0, items: [] };
   }
 }
@@ -335,7 +360,11 @@ function runTsPrune() {
  */
 function runJscpd() {
   try {
-    console.log('🔍 Running jscpd...');
+    if (noJscpd) {
+      console.log('[INFO] Skipping jscpd by flag');
+      return { count: 0, percentage: 0, duplicates: [] };
+    }
+    console.log('[RUN] Running jscpd...');
     const tempFile = path.join(process.cwd(), 'reports', 'jscpd-report.json');
 
     // Run jscpd with reporters option to generate JSON file, ignore exit code
@@ -353,7 +382,7 @@ function runJscpd() {
       });
     } catch (execError) {
       // jscpd might fail with non-zero exit code, but still generate the file
-      console.log('⚠️  jscpd finished with warnings (this is normal)');
+      console.log('[WARN] jscpd finished with warnings (this is normal)');
     }
 
     // Read the generated JSON file
@@ -373,7 +402,7 @@ function runJscpd() {
 
     return { count: 0, percentage: 0, duplicates: [] };
   } catch (error) {
-    console.warn('⚠️  jscpd failed:', error.message);
+    console.warn('[WARN] jscpd failed:', error.message);
     return { count: 0, percentage: 0, duplicates: [] };
   }
 }
@@ -403,13 +432,14 @@ async function generateHtmlLintReport() {
 
   const ignorePatterns = parseIgnorePatterns();
   lintGlobs = parseGlobs();
+  parseExtraFlags();
 
   const eslintTarget = lintGlobs ? lintGlobs : 'src/ directory';
-  console.log(`🔍 Running ESLint on ${eslintTarget}...`);
+  console.log(`[RUN] Running ESLint on ${eslintTarget}...`);
   if (ignorePatterns.length > 0) {
     // Mostrar patrones normalizados para mayor claridad
     const shown = ignorePatterns.map(normalizeIgnorePattern);
-    console.log(`📋 Ignoring patterns: ${shown.join(', ')}`);
+    console.log(`[INFO] Ignoring patterns: ${shown.join(', ')}`);
   }
 
   const buildBaseConfig = () => {
@@ -483,7 +513,7 @@ async function generateHtmlLintReport() {
       const fallback = hasSrc
         ? ['src/**/*.{ts,tsx,js,jsx}']
         : ['**/*.{ts,tsx,js,jsx}', '!**/node_modules/**', '!**/dist/**', '!**/build/**'];
-      console.warn(`⚠️  No se encontraron archivos con los globs proporcionados. Reintentando con: ${fallback.join(', ')}`);
+      console.warn(`[WARN] No se encontraron archivos con los globs proporcionados. Reintentando con: ${fallback.join(', ')}`);
       const eslint = new ESLint({
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
         fix: false,
@@ -493,7 +523,7 @@ async function generateHtmlLintReport() {
       });
       results = await eslint.lintFiles(fallback);
     } else if (!forceInternalEslint && needFallback) {
-      console.warn('⚠️  ESLint config del proyecto no disponible. Usando configuración interna mínima.');
+      console.warn('[WARN] ESLint config del proyecto no disponible. Usando configuración interna mínima.');
       const eslint = new ESLint({
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
         fix: false,
@@ -528,7 +558,7 @@ async function generateHtmlLintReport() {
   const totalIssues = errorCount + warningCount;
 
   console.log(
-    `📊 Found ${totalIssues} issues (${errorCount} errors, ${warningCount} warnings)`,
+    `[SUMMARY] Found ${totalIssues} issues (${errorCount} errors, ${warningCount} warnings)`,
   );
 
   // Count issues by rule
@@ -554,11 +584,18 @@ async function generateHtmlLintReport() {
   );
 
   // Pre-process code snippets with syntax highlighting
-  console.log('🎨 Applying syntax highlighting...');
+  console.log('[FORMAT] Applying syntax highlighting...');
   const resultsWithSnippets = await Promise.all(
     filteredResults.map(async (result) => {
+      // Prioritize errors over warnings, then by line number
+      const sortedMsgs = [...result.messages].sort((a, b) => {
+        const sevDiff = (b.severity || 0) - (a.severity || 0);
+        if (sevDiff !== 0) return sevDiff; // severity 2 first
+        return (a.line || 0) - (b.line || 0);
+      });
+      const messagesToShow = sortedMsgs.slice(0, maxIssuesPerFile);
       const messagesWithSnippets = await Promise.all(
-        result.messages.map(async (message) => ({
+        messagesToShow.map(async (message) => ({
           ...message,
           snippet: await getCodeSnippet(result.filePath, message.line),
         })),
@@ -649,6 +686,16 @@ async function generateHtmlLintReport() {
             z-index: 10;
         }
 
+        .sidebar-search { padding: 0.75rem 1rem; border-bottom: 1px solid hsl(0, 0%, 12%); }
+        .sidebar-search input {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            background: hsl(0, 0%, 8%);
+            color: hsl(0, 0%, 90%);
+            border: 1px solid hsl(0, 0%, 15%);
+        }
+
         .tree-container {
             padding: 0.5rem;
         }
@@ -728,6 +775,23 @@ async function generateHtmlLintReport() {
         .section-content {
             padding: 1.5rem;
         }
+
+        .controls-bar {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            background: hsl(0, 0%, 6%);
+            border: 1px solid hsl(0, 0%, 12%);
+            border-radius: 8px;
+            padding: 0.5rem 0.75rem;
+            margin-bottom: 1rem;
+        }
+        .controls-bar .control { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: hsl(0,0%,85%); }
+        .controls-bar input[type="checkbox"] { accent-color: hsl(217, 91%, 60%); }
+        .chip { display: none; background: hsl(217,91%,60%,0.15); color: hsl(217,91%,80%); border: 1px solid hsl(217,91%,45%); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.8rem; }
+        .btn-clear { display: none; align-items: center; gap: 0.25rem; border: 1px solid hsl(0,0%,20%); background: hsl(0,0%,8%); color: hsl(0,0%,85%); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
+        .btn-copy { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid hsl(0,0%,20%); background: hsl(0,0%,8%); color: hsl(0,0%,85%); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
+        .rules-table tbody tr { cursor: pointer; }
 
         .rules-table {
             width: 100%;
@@ -1024,11 +1088,7 @@ async function generateHtmlLintReport() {
             color: hsl(0, 0%, 90%);
         }
 
-        .expand-toggle-icon {
-            margin-right: 0.5rem;
-            font-weight: bold;
-            transition: transform 0.2s;
-        }
+        .expand-toggle-icon { margin-right: 0.5rem; transition: transform 0.2s; }
 
         .expand-toggle.expanded .expand-toggle-icon {
             transform: rotate(180deg);
@@ -1044,10 +1104,7 @@ async function generateHtmlLintReport() {
             color: hsl(142, 76%, 50%);
         }
 
-        .no-issues-icon {
-            font-size: 4rem;
-            margin-bottom: 1rem;
-        }
+        .no-issues-icon { margin-bottom: 1rem; }
 
         .no-issues-text {
             font-size: 1.5rem;
@@ -1100,10 +1157,7 @@ async function generateHtmlLintReport() {
             border-left: 3px solid hsl(217, 91%, 60%);
         }
 
-        .tree-icon {
-            font-size: 1rem;
-            flex-shrink: 0;
-        }
+        .tree-icon { flex-shrink: 0; }
 
         .folder-icon {
             transition: transform 0.2s;
@@ -1167,8 +1221,73 @@ async function generateHtmlLintReport() {
             border-radius: 4px;
             font-size: 0.85em;
         }
+        /* Icon base */
+        .icon { width: 16px; height: 16px; stroke: currentColor; fill: none; display: inline-block; }
+        .icon-lg { width: 20px; height: 20px; }
+        .icon-xl { width: 64px; height: 64px; }
+
+        /* Severity icons inherit color from container */
+        .severity-icon svg { width: 18px; height: 18px; }
+        .expand-toggle-icon svg { width: 14px; height: 14px; }
+        .tree-icon svg { width: 16px; height: 16px; }
     </style>
+    <!-- Inline SVG icon sprite for a professional look (no external deps) -->
+    <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+      <symbol id="icon-check-circle" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M8 12l3 3 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </symbol>
+      <symbol id="icon-alert" viewBox="0 0 24 24">
+        <path d="M12 2l10 18H2L12 2z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/>
+        <path d="M12 9v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="12" cy="17" r="1" fill="currentColor"/>
+      </symbol>
+      <symbol id="icon-x-circle" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="icon-folder" viewBox="0 0 24 24">
+        <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/>
+      </symbol>
+      <symbol id="icon-file" viewBox="0 0 24 24">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M14 2v6h6" stroke="currentColor" stroke-width="2" fill="none"/>
+      </symbol>
+      <symbol id="icon-hash" viewBox="0 0 24 24">
+        <path d="M5 9h14M5 15h14M9 5l-2 14M17 5l-2 14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="icon-tag" viewBox="0 0 24 24">
+        <path d="M20 12l-8 8-8-8 6-6h6l4 4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/>
+        <circle cx="14.5" cy="9.5" r="1.5" fill="currentColor"/>
+      </symbol>
+      <symbol id="icon-filter" viewBox="0 0 24 24">
+        <path d="M4 5h16M7 12h10M10 19h4" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="icon-list" viewBox="0 0 24 24">
+        <path d="M8 6h13M8 12h13M8 18h13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <circle cx="4" cy="6" r="1" fill="currentColor"/>
+        <circle cx="4" cy="12" r="1" fill="currentColor"/>
+        <circle cx="4" cy="18" r="1" fill="currentColor"/>
+      </symbol>
+      <symbol id="icon-duplicate" viewBox="0 0 24 24">
+        <rect x="9" y="9" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
+        <rect x="5" y="5" width="10" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
+      </symbol>
+      <symbol id="icon-search" viewBox="0 0 24 24">
+        <circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="icon-caret-down" viewBox="0 0 24 24">
+        <path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      </symbol>
+      <symbol id="icon-link" viewBox="0 0 24 24">
+        <path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07L13 19" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </symbol>
+    </svg>
     <script>
+        let filterState = { showErrors: true, showWarnings: true, rule: '' };
+
         function toggleExpand(button, sectionId) {
             const section = document.getElementById(sectionId);
             const isExpanded = section.classList.contains('expanded');
@@ -1226,6 +1345,103 @@ async function generateHtmlLintReport() {
 
             fileElement.classList.toggle('file-collapsed');
         }
+
+        function updateIssueFilters() {
+            const issues = Array.from(document.querySelectorAll('.issue'));
+            const { showErrors, showWarnings, rule } = filterState;
+            issues.forEach(issue => {
+                const sev = issue.getAttribute('data-severity');
+                const ruleId = issue.getAttribute('data-rule') || '';
+                let visible = true;
+                if (sev === 'error' && !showErrors) visible = false;
+                if (sev === 'warning' && !showWarnings) visible = false;
+                if (rule && ruleId !== rule) visible = false;
+                issue.style.display = visible ? '' : 'none';
+            });
+
+            // Hide file containers with no visible issues
+            document.querySelectorAll('.file-issue').forEach(file => {
+                const issuesInFile = Array.from(file.querySelectorAll('.file-issues-container .issue'));
+                const anyVisible = issuesInFile.some(el => el.style.display !== 'none');
+                file.style.display = anyVisible ? '' : 'none';
+            });
+
+            // Update active rule chip
+            const chip = document.getElementById('active-rule-chip');
+            const clearBtn = document.getElementById('clear-rule-filter');
+            if (chip && clearBtn) {
+                if (rule) {
+                    chip.textContent = rule;
+                    chip.style.display = 'inline-block';
+                    clearBtn.style.display = 'inline-flex';
+                } else {
+                    chip.style.display = 'none';
+                    clearBtn.style.display = 'none';
+                }
+            }
+        }
+
+        function onSeverityCheckboxChange() {
+            const errorsCb = document.getElementById('filter-errors');
+            const warningsCb = document.getElementById('filter-warnings');
+            filterState.showErrors = !!(errorsCb && errorsCb.checked);
+            filterState.showWarnings = !!(warningsCb && warningsCb.checked);
+            updateIssueFilters();
+        }
+
+        function filterByRule(ruleId) {
+            filterState.rule = (filterState.rule === ruleId) ? '' : ruleId;
+            updateIssueFilters();
+        }
+
+        function clearRuleFilter() {
+            filterState.rule = '';
+            updateIssueFilters();
+        }
+
+        function copyFileLink(fileId, ev) {
+            ev && ev.stopPropagation();
+            const url = location.origin + location.pathname + '#' + fileId;
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(url).catch(() => {});
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = url;
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch {}
+                document.body.removeChild(ta);
+            }
+        }
+
+        function filterTree(input) {
+            const q = (input.value || '').toLowerCase();
+            const files = Array.from(document.querySelectorAll('.tree-file'));
+            files.forEach(f => {
+                const name = (f.textContent || '').toLowerCase();
+                const match = !q || name.includes(q);
+                f.style.display = match ? '' : 'none';
+            });
+            // Optionally hide folders without visible files
+            const folders = Array.from(document.querySelectorAll('.tree-folder'));
+            folders.forEach(folder => {
+                const filesInFolder = Array.from(folder.querySelectorAll(':scope .tree-file'));
+                const anyVisible = filesInFolder.some(el => el.style.display !== 'none');
+                folder.style.display = anyVisible ? '' : 'none';
+            });
+        }
+
+        window.addEventListener('load', () => {
+            updateIssueFilters();
+            if (location.hash) {
+                const id = location.hash.slice(1);
+                const el = document.getElementById(id);
+                if (el) {
+                    el.classList.remove('file-collapsed');
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+        });
     </script>
     <style>
         @keyframes highlight {
@@ -1269,7 +1485,10 @@ async function generateHtmlLintReport() {
 
     <div class="main-content">
         <aside class="sidebar">
-            <div class="sidebar-header">📁 Files with Issues</div>
+            <div class="sidebar-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-folder" /></svg> Files with Issues</div>
+            <div class="sidebar-search">
+                <input type="text" placeholder="Search files..." oninput="filterTree(this)" />
+            </div>
             <div class="tree-container">
                 ${fileTreeHtml}
             </div>
@@ -1279,9 +1498,9 @@ async function generateHtmlLintReport() {
         ${
           ignorePatterns.length > 0
             ? `
-        <div class="filter-info">
-            <strong>🔍 Filters Applied:</strong> Ignoring patterns: ${ignorePatterns.map((p) => `<code lang="typescript">${escapeHtml(p)}</code>`).join(', ')}
-        </div>
+            <div class="filter-info">
+                <strong><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-filter" /></svg> Filters Applied:</strong> Ignoring patterns: ${ignorePatterns.map((p) => `<code lang="typescript">${escapeHtml(p)}</code>`).join(', ')}
+            </div>
         `
             : ''
         }
@@ -1317,11 +1536,11 @@ async function generateHtmlLintReport() {
           sortedRules.length > 0
             ? `
         <div class="section">
-            <div class="section-header">📋 Issues by Rule (Top ${Math.min(15, sortedRules.length)})</div>
+            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Issues by Rule (Top ${Math.min(15, sortedRules.length)})</div>
             <div class="section-content">
                 <table class="rules-table">
                     <thead>
-                        <tr>
+                        <tr onclick="filterByRule('${escapeHtml(rule).replace(/'/g, '&#39;')}')">
                             <th>Rule</th>
                             <th style="text-align: center;">Total</th>
                             <th style="text-align: center;">Errors</th>
@@ -1333,7 +1552,7 @@ async function generateHtmlLintReport() {
                           .slice(0, 15)
                           .map(
                             ([rule, stats]) => `
-                        <tr>
+                        <tr onclick="filterByRule('${escapeHtml(rule)}')">
                             <td class="rule-name">${escapeHtml(rule)}</td>
                             <td style="text-align: center; font-weight: bold;">${stats.count}</td>
                             <td style="text-align: center;">${stats.errors > 0 ? `<span class="badge badge-error">${stats.errors}</span>` : '—'}</td>
@@ -1352,7 +1571,7 @@ async function generateHtmlLintReport() {
 
         ${tsPruneData.count > 0 ? `
         <div class="section">
-            <div class="section-header">🗑️ Unused Exports (ts-prune)</div>
+            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Unused Exports (ts-prune)</div>
             <div class="section-content">
                 <table class="rules-table">
                     <thead>
@@ -1379,7 +1598,7 @@ async function generateHtmlLintReport() {
 
         ${jscpdData.count > 0 ? `
         <div class="section">
-            <div class="section-header">📋 Code Duplicates (jscpd) - ${jscpdData.percentage.toFixed(2)}% duplication</div>
+            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-duplicate" /></svg> Code Duplicates (jscpd) - ${jscpdData.percentage.toFixed(2)}% duplication</div>
             <div class="section-content">
                 <table class="rules-table">
                     <thead>
@@ -1409,13 +1628,19 @@ async function generateHtmlLintReport() {
         ` : ''}
 
         <div class="section">
-            <div class="section-header">🔍 ESLint Issues by File</div>
+            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-search" /></svg> ESLint Issues by File</div>
             <div class="section-content">
+                <div class="controls-bar">
+                    <label class="control"><input id="filter-errors" type="checkbox" checked onchange="onSeverityCheckboxChange()" /> Errors</label>
+                    <label class="control"><input id="filter-warnings" type="checkbox" checked onchange="onSeverityCheckboxChange()" /> Warnings</label>
+                    <span class="control">Rule: <span id="active-rule-chip" class="chip"></span></span>
+                    <button id="clear-rule-filter" class="btn-clear" onclick="clearRuleFilter()"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-x-circle" /></svg> Clear</button>
+                </div>
                 ${
                   totalIssues === 0
                     ? `
                 <div class="no-issues">
-                    <div class="no-issues-icon">✅</div>
+                    <div class="no-issues-icon"><svg class="icon icon-xl" viewBox="0 0 24 24"><use href="#icon-check-circle" /></svg></div>
                     <div class="no-issues-text">No issues found!</div>
                     <p style="margin-top: 0.5rem;">All files passed ESLint validation.</p>
                 </div>
@@ -1439,9 +1664,10 @@ async function generateHtmlLintReport() {
                                     <div class="file-path">${escapeHtml(relativePath)}</div>
                                 </div>
                                 <div class="file-stats">
-                                    ${result.errorCount > 0 ? `<span class="badge badge-error">${result.errorCount} error${result.errorCount !== 1 ? 's' : ''}</span>` : ''}
-                                    ${result.warningCount > 0 ? `<span class="badge badge-warning">${result.warningCount} warning${result.warningCount !== 1 ? 's' : ''}</span>` : ''}
+                                    ${result.errorCount > 0 ? `<span class=\"badge badge-error\">${result.errorCount} error${result.errorCount !== 1 ? 's' : ''}</span>` : ''}
+                                    ${result.warningCount > 0 ? `<span class=\"badge badge-warning\">${result.warningCount} warning${result.warningCount !== 1 ? 's' : ''}</span>` : ''}
                                 </div>
+                                <button class="btn-copy" onclick="copyFileLink('${fileId}', event)"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-link" /></svg> Copy link</button>
                             </div>
                             <div class="file-issues-container">
                             ${result.messagesWithSnippets
@@ -1454,22 +1680,24 @@ async function generateHtmlLintReport() {
                                 const hasContent = snippet.visible.length > 0 || snippet.expandableTop.length > 0 || snippet.expandableBottom.length > 0;
 
                                 return `
-                                <div class="issue">
+                                <div class="issue" data-severity="${isError ? 'error' : 'warning'}" data-rule="${escapeHtml(message.ruleId || '')}">
                                     <div class="issue-header">
                                         <div class="severity-icon severity-${isError ? 'error' : 'warning'}">
-                                            ${isError ? '✕' : '⚠'}
+                                            <svg class="icon" viewBox="0 0 24 24"><use href="#${isError ? 'icon-x-circle' : 'icon-alert'}" /></svg>
                                         </div>
                                         <div class="issue-details">
                                             <div class="issue-message">${escapeHtml(message.message)}</div>
                                             <div class="issue-meta">
                                                 <div class="issue-meta-item">
-                                                    📍 Line ${message.line}:${message.column}
+                                                    <svg class="icon" viewBox="0 0 24 24"><use href="#icon-hash" /></svg>
+                                                    Line ${message.line}:${message.column}
                                                 </div>
                                                 ${
                                                   message.ruleId
                                                     ? `
                                                 <div class="issue-meta-item">
-                                                    📋 <code lang="typescript">${escapeHtml(message.ruleId)}</code>
+                                                    <svg class="icon" viewBox="0 0 24 24"><use href="#icon-tag" /></svg>
+                                                    <code lang="typescript">${escapeHtml(message.ruleId)}</code>
                                                 </div>
                                                 `
                                                     : ''
@@ -1483,7 +1711,7 @@ async function generateHtmlLintReport() {
                                     <div class="code-snippet">
                                         ${snippet.expandableTop.length > 0 ? `
                                         <div class="expand-toggle" onclick="toggleExpand(this, '${uniqueId}-top')">
-                                            <span class="expand-toggle-icon">▼</span>
+                                            <span class="expand-toggle-icon"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-caret-down" /></svg></span>
                                             <span>Show ${snippet.expandableTop.length} more line${snippet.expandableTop.length !== 1 ? 's' : ''} above</span>
                                         </div>
                                         <div id="${uniqueId}-top" class="expandable-section">
@@ -1511,7 +1739,7 @@ async function generateHtmlLintReport() {
                                           .join('')}
                                         ${snippet.expandableBottom.length > 0 ? `
                                         <div class="expand-toggle" onclick="toggleExpand(this, '${uniqueId}-bottom')">
-                                            <span class="expand-toggle-icon">▼</span>
+                                            <span class="expand-toggle-icon"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-caret-down" /></svg></span>
                                             <span>Show ${snippet.expandableBottom.length} more line${snippet.expandableBottom.length !== 1 ? 's' : ''} below</span>
                                         </div>
                                         <div id="${uniqueId}-bottom" class="expandable-section">
@@ -1556,9 +1784,9 @@ async function generateHtmlLintReport() {
   const reportPath = path.join(reportsDir, 'lint-report.html');
   fs.writeFileSync(reportPath, html);
 
-  console.log(`✅ HTML report generated: ${reportPath}`);
+  console.log(`[OK] HTML report generated: ${reportPath}`);
   console.log(
-    `📊 Summary: ${totalIssues} total issues (${errorCount} errors, ${warningCount} warnings)`,
+    `[SUMMARY] ${totalIssues} total issues (${errorCount} errors, ${warningCount} warnings)`,
   );
 
   // Write machine-readable summary alongside HTML for persistence/history
@@ -1581,7 +1809,7 @@ async function generateHtmlLintReport() {
     };
     fs.writeFileSync(path.join(reportsDir, 'lint-summary.json'), JSON.stringify(jsonSummary, null, 2), 'utf8');
   } catch (e) {
-    console.warn('⚠️  Failed to write lint-summary.json:', e?.message || e);
+    console.warn('[WARN] Failed to write lint-summary.json:', e?.message || e);
   }
 
   // Don't exit with error code to allow viewing the report even when there are errors
@@ -1589,6 +1817,6 @@ async function generateHtmlLintReport() {
 }
 
 generateHtmlLintReport().catch((error) => {
-  console.error('❌ Error generating HTML lint report:', error);
+  console.error('[ERROR] Error generating HTML lint report:', error);
   process.exit(1);
 });

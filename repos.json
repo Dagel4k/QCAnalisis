@@ -10,6 +10,18 @@
     "name": "Test de Pagos",
     "repoUrl": "https://gitlab.prestavale.mx/Daniel_P/TestPagos.git",
     "description": "Suite de testing de pagos"
+  },
+  {
+    "slug": "Cypress",
+    "name": "Tests automatizados con cypress",
+    "repoUrl": "https://gitlab.prestavale.mx/Daniel_P/cypress.git",
+    "description": "Suite de testing del cajero"
+  },
+  {
+    "slug": "QC-Analisis",
+    "name": "Analisis de codes",
+    "repoUrl": "https://gitlab.prestavale.mx/Daniel_P/QCAnalisis.git",
+    "description": "Dashboard analizador de codigos del pepe"
   }
 ]
 

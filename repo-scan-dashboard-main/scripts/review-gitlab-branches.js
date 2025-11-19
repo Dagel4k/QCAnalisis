@@ -331,8 +331,8 @@ async function main() {
         fs.rmSync(cloneDir, { recursive: true, force: true });
       }
 
-      // Shallow clone branch
-      run(`git clone --depth ${opts.depth} --branch ${branchName} --single-branch ${task.repoUrl} ${cloneDir}`);
+      // Shallow clone branch (silencioso para evitar falsos "ERROR" por salida en stderr)
+      run(`git clone --quiet --depth ${opts.depth} --branch ${branchName} --single-branch ${task.repoUrl} ${cloneDir}`);
 
       // Opcional: instalar meta dev dependency (para ESLint, ts-prune, jscpd, etc.)
       if (opts.installDev) {
