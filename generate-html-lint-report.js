@@ -846,7 +846,7 @@ async function generateHtmlLintReport() {
         .chart-card { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 1rem; }
         .chart-title { font-weight: 600; margin-bottom: 0.75rem; color: hsl(var(--foreground)); display: flex; align-items: center; gap: .5rem; }
         .bar-chart { display: flex; align-items: flex-end; gap: .75rem; height: 180px; padding: .5rem 0; border-bottom: 1px dashed hsl(var(--border)); }
-        .bar { width: 28px; background: hsl(var(--primary)); border-radius: 4px 4px 0 0; position: relative; }
+        .bar { width: 28px; background: hsl(var(--bar-color-hsl, var(--primary))); border-radius: 4px 4px 0 0; position: relative; }
         .bar:hover { filter: brightness(1.1); }
         .bar-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: .75rem; color: hsl(var(--muted-foreground)); text-align: center; margin-top: .5rem; max-height: 48px; overflow: hidden; }
         .bar-wrap { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
@@ -1588,7 +1588,7 @@ async function generateHtmlLintReport() {
             <div class="section-content">
                 <div class="charts-grid">
                     <div class="chart-card">
-                        <div class="chart-title">By Directory (Top ${topDirs.length})</div>
+                        <div class="chart-title">By Directory (Top 10)</div>
                         ${topDirs.length === 0 ? `<div style=\"color: hsl(var(--muted-foreground));\">No issues to chart.</div>` : `
                         <div class=\"bar-chart\">
                             ${topDirs
@@ -1597,7 +1597,7 @@ async function generateHtmlLintReport() {
                                 const colorVar = barColorVars[idx % barColorVars.length];
                                 return `
                                 <div class=\"bar-wrap\" title=\"${escapeHtml(dir)}: ${count}\">
-                                    <div class=\"bar\" style=\"height:${h}%; background:hsl(var(${colorVar}))\"><span class=\"bar-value\">${count}</span></div>
+                                    <div class=\"bar\" style=\"height:${h}%; --bar-color-hsl: var(${colorVar});\"><span class=\"bar-value\">${count}</span></div>
                                     <div class=\"bar-label\">${escapeHtml(dir)}</div>
                                 </div>`;
                               })

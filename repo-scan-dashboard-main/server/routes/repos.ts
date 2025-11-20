@@ -191,3 +191,68 @@ reposRouter.get('/:slug/reports/:id', (req, res) => {
     res.status(500).json({ error: 'Failed to serve report' });
   }
 });
+
+// POST /api/repos/import-default - Import repos from a fixed local path
+// NOTE: This is intended for local usage to quickly load repos.json.
+reposRouter.post('/import-default', (req, res) => {
+  try {
+    const sourcePath = '/Users/daniel/Downloads/scriptCCode/repos.json';
+    if (!fs.existsSync(sourcePath)) {
+      return res.status(404).json({ error: `repos.json not found at ${sourcePath}` });
+    }
+
+    const raw = fs.readFileSync(sourcePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+
+    // Optionally, try to write/ensure destination exists where getRepositories reads from
+    try {
+      const targetPath = path.join(config.storageDir, '..', 'repos.json');
+      // Ensure dir exists (it should), then write
+      fs.writeFileSync(targetPath, JSON.stringify(parsed, null, 2), 'utf-8');
+    } catch (writeErr) {
+      // Non-fatal: still return parsed content so UI can use it
+      console.warn('Could not write repos.json to project root:', writeErr);
+    }
+
+    res.json(parsed);
+  } catch (error) {
+    console.error('Error importing default repos.json:', error);
+    res.status(500).json({ error: 'Failed to import repos.json' });
+  }
+});
+
+// Helper to resolve writable repos.json path (project root)
+function resolveReposJsonPath(): string {
+  // Prefer sibling of storageDir (which defaults to <projectRoot>/reports)
+  const candidate = path.join(config.storageDir, '..', 'repos.json');
+  return candidate;
+}
+
+// POST /api/repos - Append a repository to repos.json
+reposRouter.post('/', (req, res) => {
+  try {
+    const { slug, name, repoUrl, imageUrl, description } = req.body || {};
+    if (!slug || !name || !repoUrl) {
+      return res.status(400).json({ error: 'slug, name y repoUrl son requeridos' });
+    }
+
+    const repos = getRepositories();
+    if (repos.some(r => r.slug === slug)) {
+      return res.status(409).json({ error: `Ya existe un repo con slug '${slug}'` });
+    }
+
+    const newRepo = { slug, name, repoUrl, imageUrl, description };
+    const updated = [...repos, newRepo];
+
+    const targetPath = resolveReposJsonPath();
+    // Ensure directory exists
+    const dir = path.dirname(targetPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf-8');
+
+    return res.status(201).json(updated);
+  } catch (error) {
+    console.error('Error adding repository:', error);
+    return res.status(500).json({ error: 'Failed to add repository' });
+  }
+});

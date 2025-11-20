@@ -1,14 +1,28 @@
 import { useEffect, useState } from 'react';
-import { Search, Code2 } from '@/icons';
+import { Search, Code2, Loader2 } from '@/icons';
 import { Input } from '@/components/ui/input';
 import { RepoCard } from '@/components/RepoCard';
 import { RepositoryWithStatus } from '@/types';
 import { API_URL } from '@/lib/config-client';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 
 export default function Home() {
   const [repos, setRepos] = useState<RepositoryWithStatus[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    name: '',
+    slug: '',
+    repoUrl: '',
+    imageUrl: '',
+    description: '',
+  });
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchRepos();
@@ -23,6 +37,63 @@ export default function Home() {
       console.error('Error fetching repos:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const slugify = (s: string) => s
+    .toLowerCase()
+    .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+  const handleChange = (key: keyof typeof form, value: string) => {
+    setError('');
+    setForm(prev => {
+      const next = { ...prev, [key]: value };
+      if (key === 'name' && !prev.slug) {
+        next.slug = slugify(value);
+      }
+      return next;
+    });
+  };
+
+  const handleSubmitAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.slug || !form.repoUrl) {
+      setError('Nombre, Slug y Repo URL son obligatorios');
+      return;
+    }
+    try {
+      setAdding(true);
+      const resp = await fetch(`${API_URL}/api/repos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          slug: form.slug.trim(),
+          repoUrl: form.repoUrl.trim(),
+          imageUrl: form.imageUrl.trim() || undefined,
+          description: form.description.trim() || undefined,
+        }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setError(err?.error || 'No se pudo añadir el repositorio');
+        return;
+      }
+      const data = await resp.json();
+      if (Array.isArray(data)) {
+        setRepos(data);
+      } else {
+        await fetchRepos();
+      }
+      setOpen(false);
+      setForm({ name: '', slug: '', repoUrl: '', imageUrl: '', description: '' });
+    } catch (err) {
+      console.error(err);
+      setError('Error al enviar la solicitud');
+    } finally {
+      setAdding(false);
     }
   };
 
@@ -54,8 +125,8 @@ export default function Home() {
       </header>
 
       <main className="relative container mx-auto px-6 py-10">
-        <div className="mb-8">
-          <div className="relative max-w-lg">
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <div className="relative max-w-lg w-full">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
               type="text"
@@ -65,6 +136,55 @@ export default function Home() {
               className="pl-12 h-12 bg-card/50 border-border/50 backdrop-blur-sm text-base"
             />
           </div>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="h-12 px-5">
+                Añadir repo
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <form onSubmit={handleSubmitAdd} className="space-y-4">
+                <DialogHeader>
+                  <DialogTitle>Añadir repositorio</DialogTitle>
+                  <DialogDescription>
+                    Completa los datos para agregarlo a repos.json
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-3">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="repo-name">Nombre</Label>
+                    <Input id="repo-name" value={form.name} onChange={(e) => handleChange('name', e.target.value)} placeholder="Mi Proyecto" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="repo-slug">Slug</Label>
+                    <Input id="repo-slug" value={form.slug} onChange={(e) => handleChange('slug', e.target.value)} placeholder="mi-proyecto" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="repo-url">Repo URL</Label>
+                    <Input id="repo-url" value={form.repoUrl} onChange={(e) => handleChange('repoUrl', e.target.value)} placeholder="https://gitlab.com/org/repo.git" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="repo-image">Imagen (opcional)</Label>
+                    <Input id="repo-image" value={form.imageUrl} onChange={(e) => handleChange('imageUrl', e.target.value)} placeholder="https://.../logo.png" />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="repo-desc">Descripción (opcional)</Label>
+                    <Textarea id="repo-desc" value={form.description} onChange={(e) => handleChange('description', e.target.value)} placeholder="Breve descripción" />
+                  </div>
+                </div>
+                {error && (
+                  <p className="text-sm text-destructive">{error}</p>
+                )}
+                <DialogFooter>
+                  <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+                  <Button type="submit" disabled={adding}>
+                    {adding && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Guardar
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {loading ? (

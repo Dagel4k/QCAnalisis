@@ -431,19 +431,17 @@ export default function RepoDetail() {
 
                         {totalPages > 1 && (
                           <div className="pt-3 border-t border-border/50">
-                            <Pagination>
-                              <PaginationContent>
-                                <PaginationItem>
-                                  <PaginationPrevious
-                                    href="#"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      if (currentPage > 1) setCurrentPage(currentPage - 1);
-                                    }}
-                                    className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
-                                  />
-                                </PaginationItem>
-                                
+                            <div className="flex items-center justify-between w-full">
+                              <PaginationPrevious
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (currentPage > 1) setCurrentPage(currentPage - 1);
+                                }}
+                                className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
+                              />
+
+                              <div className="inline-flex items-center gap-1">
                                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
                                   if (
                                     page === 1 ||
@@ -473,19 +471,17 @@ export default function RepoDetail() {
                                   }
                                   return null;
                                 })}
+                              </div>
 
-                                <PaginationItem>
-                                  <PaginationNext
-                                    href="#"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-                                    }}
-                                    className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
-                                  />
-                                </PaginationItem>
-                              </PaginationContent>
-                            </Pagination>
+                              <PaginationNext
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+                                }}
+                                className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
+                              />
+                            </div>
                           </div>
                         )}
 
@@ -515,7 +511,7 @@ export default function RepoDetail() {
                   <CardTitle className="text-lg">Estado del Análisis</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <JobStatusCompact job={currentJob} />
+                    <JobStatusCompact job={currentJob} latestReportId={historyList[0]?.id} repoSlug={slug!} />
                 </CardContent>
               </Card>
             </div>

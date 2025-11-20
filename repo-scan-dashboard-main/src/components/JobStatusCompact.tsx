@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, Loader2, Clock, Terminal } from '@/icons';
 import { AnalysisJob } from '@/types';
+import { API_URL } from '@/lib/config-client';
 import { cn } from '@/lib/utils';
 import {
   Dialog,
@@ -20,9 +21,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 interface JobStatusCompactProps {
   job: AnalysisJob;
   onViewLogs?: () => void;
+  latestReportId?: string;
+  repoSlug?: string;
 }
 
-export function JobStatusCompact({ job, onViewLogs }: JobStatusCompactProps) {
+export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: JobStatusCompactProps) {
   const [progress, setProgress] = useState(0);
   const [logsOpen, setLogsOpen] = useState(false);
 
@@ -73,8 +76,8 @@ export function JobStatusCompact({ job, onViewLogs }: JobStatusCompactProps) {
 
   return (
     <>
-      <div className="flex items-center justify-between p-3 border border-border rounded-md bg-card/30">
-        <div className="flex items-center gap-3 flex-1">
+      <div className="p-3 border border-border rounded-md bg-card/30">
+        <div className="flex items-center gap-3">
           <Badge 
             variant={config.variant} 
             className={cn(
@@ -86,21 +89,19 @@ export function JobStatusCompact({ job, onViewLogs }: JobStatusCompactProps) {
             <Icon className={cn("h-3.5 w-3.5", job.status === 'running' && 'animate-spin')} />
             {config.label}
           </Badge>
-          
           {(job.status === 'running' || job.status === 'succeeded') && (
-            <div className="flex-1 max-w-[180px]">
-              <Progress value={progress} className="h-1.5 bg-muted/50" />
+            <div className="flex-1 flex items-center gap-2">
+              <Progress value={progress} className="h-2 bg-muted/50 w-full" />
+              <span className="text-xs tabular-nums text-muted-foreground min-w-[2.5rem] text-right">{Math.round(progress)}%</span>
             </div>
           )}
-          
           {hasErrors && (
-            <span className="text-xs text-destructive font-medium">
+            <span className="text-xs text-destructive font-medium ml-auto">
               {errorLogs.length} error{errorLogs.length !== 1 ? 'es' : ''}
             </span>
           )}
-        </div>
-        
-        {job.logs.length > 0 && (
+
+          {job.logs.length > 0 && (
           <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-2 h-8 text-xs">
@@ -145,6 +146,20 @@ export function JobStatusCompact({ job, onViewLogs }: JobStatusCompactProps) {
               )}
             </DialogContent>
           </Dialog>
+        )}
+        </div>
+
+        {/* Botón para ver reporte cuando termina */}
+        {job.status === 'succeeded' && latestReportId && repoSlug && (
+          <div className="mt-3 flex justify-end">
+            <a
+              href={`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Button size="sm" variant="outline">Ver reporte</Button>
+            </a>
+          </div>
         )}
       </div>
     </>
