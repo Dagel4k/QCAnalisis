@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { RepositoryWithStatus } from '@/types';
-import { GitBranch, CheckCircle2, XCircle, Clock, ArrowRight } from 'lucide-react';
+import { GitBranch, CheckCircle2, XCircle, Clock, ArrowRight } from '@/icons';
 import { cn } from '@/lib/utils';
 
 interface RepoCardProps {
@@ -51,6 +51,10 @@ export function RepoCard({ repo }: RepoCardProps) {
               <img
                 src={repo.imageUrl}
                 alt={repo.name}
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
                 className="h-12 w-12 rounded-lg object-cover border border-border/50"
               />
             )}

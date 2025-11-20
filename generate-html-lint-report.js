@@ -618,6 +618,46 @@ async function generateHtmlLintReport() {
   const fileTree = buildFileTree(filesWithIssues);
   const fileTreeHtml = renderFileTree(fileTree);
 
+  // Aggregate: issues by top-level directory and by type
+  const issueCountsByDir = {};
+  filteredResults.forEach((result) => {
+    const rel = path.relative(process.cwd(), result.filePath);
+    const parts = rel.split(path.sep).filter(Boolean);
+    // Prefer grouping by folder inside src/, else top-level folder, else root
+    let bucket = 'root';
+    if (parts.length > 1 && parts[0] === 'src') bucket = parts[1];
+    else if (parts.length > 0) bucket = parts[0];
+
+    const issuesInFile = (result.messages || []).length;
+    if (!issueCountsByDir[bucket]) issueCountsByDir[bucket] = 0;
+    issueCountsByDir[bucket] += issuesInFile;
+  });
+  const topDirs = Object.entries(issueCountsByDir)
+    .sort((a, b) => (b[1] || 0) - (a[1] || 0))
+    .slice(0, 10);
+  const maxDirIssues = topDirs.reduce((m, [, c]) => Math.max(m, c), 0) || 1;
+  const barColorVars = ['--primary', '--warning', '--success', '--destructive', '--accent'];
+
+  // Donut data (combine ESLint + extras when available)
+  const donutData = [
+    { key: 'Errors', count: errorCount, color: 'hsl(var(--destructive))' },
+    { key: 'Warnings', count: warningCount, color: 'hsl(var(--warning))' },
+    { key: 'Unused Exports', count: (tsPruneData && tsPruneData.count) || 0, color: 'hsl(var(--success))' },
+    { key: 'Code Duplicates', count: (jscpdData && jscpdData.count) || 0, color: 'hsl(var(--primary))' },
+  ];
+  const donutTotal = donutData.reduce((s, d) => s + d.count, 0) || 1;
+  // Build a conic-gradient string for the donut
+  let acc = 0;
+  const donutStops = donutData
+    .filter((d) => d.count > 0)
+    .map((d) => {
+      const start = (acc / donutTotal) * 100;
+      acc += d.count;
+      const end = (acc / donutTotal) * 100;
+      return `${d.color} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+    })
+    .join(', ');
+
   // Generate HTML
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -626,6 +666,34 @@ async function generateHtmlLintReport() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESLint Report - SonarQube Style</title>
     <style>
+        :root {
+            --background: 0 0% 3%;
+            --foreground: 0 0% 98%;
+            --card: 0 0% 5%;
+            --card-foreground: 0 0% 98%;
+            --popover: 0 0% 5%;
+            --popover-foreground: 0 0% 98%;
+            --primary: 217 91% 60%;
+            --primary-foreground: 0 0% 3%;
+            --secondary: 0 0% 10%;
+            --secondary-foreground: 0 0% 98%;
+            --muted: 0 0% 10%;
+            --muted-foreground: 0 0% 65%;
+            --accent: 217 91% 60%;
+            --accent-foreground: 0 0% 3%;
+            --success: 142 76% 36%;
+            --success-foreground: 0 0% 98%;
+            --warning: 38 92% 50%;
+            --warning-foreground: 0 0% 3%;
+            --destructive: 0 84% 60%;
+            --destructive-foreground: 0 0% 98%;
+            --border: 0 0% 15%;
+            --input: 0 0% 15%;
+            --ring: 217 91% 60%;
+            --radius: 0.75rem;
+            --code-bg: 0 0% 2%;
+            --code-text: 0 0% 98%;
+        }
         * {
             margin: 0;
             padding: 0;
@@ -633,9 +701,9 @@ async function generateHtmlLintReport() {
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: hsl(0, 0%, 3%);
-            color: hsl(0, 0%, 98%);
+            font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: hsl(var(--background));
+            color: hsl(var(--foreground));
             line-height: 1.6;
             display: flex;
             flex-direction: column;
@@ -644,10 +712,10 @@ async function generateHtmlLintReport() {
         }
 
         .header {
-            background: linear-gradient(135deg, hsl(217, 91%, 60%) 0%, hsl(217, 91%, 50%) 100%);
-            color: white;
-            padding: 1.5rem 2rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            background: hsl(var(--primary));
+            color: hsl(var(--primary-foreground));
+            padding: 1.25rem 2rem 1rem 2rem;
+            box-shadow: 0 4px 12px hsl(var(--background) / 0.6);
             flex-shrink: 0;
         }
 
@@ -669,31 +737,31 @@ async function generateHtmlLintReport() {
 
         .sidebar {
             width: 350px;
-            background: hsl(0, 0%, 5%);
-            border-right: 1px solid hsl(0, 0%, 15%);
+            background: hsl(var(--card));
+            border-right: 1px solid hsl(var(--border));
             overflow-y: auto;
             flex-shrink: 0;
         }
 
         .sidebar-header {
             padding: 1rem 1.5rem;
-            background: hsl(0, 0%, 8%);
-            border-bottom: 2px solid hsl(0, 0%, 15%);
+            background: hsl(var(--secondary));
+            border-bottom: 2px solid hsl(var(--border));
             font-weight: 600;
-            color: hsl(0, 0%, 98%);
+            color: hsl(var(--foreground));
             position: sticky;
             top: 0;
             z-index: 10;
         }
 
-        .sidebar-search { padding: 0.75rem 1rem; border-bottom: 1px solid hsl(0, 0%, 12%); }
+        .sidebar-search { padding: 0.75rem 1rem; border-bottom: 1px solid hsl(var(--border)); }
         .sidebar-search input {
             width: 100%;
             padding: 0.5rem 0.75rem;
             border-radius: 6px;
-            background: hsl(0, 0%, 8%);
-            color: hsl(0, 0%, 90%);
-            border: 1px solid hsl(0, 0%, 15%);
+            background: hsl(var(--secondary));
+            color: hsl(var(--foreground));
+            border: 1px solid hsl(var(--border));
         }
 
         .tree-container {
@@ -703,8 +771,28 @@ async function generateHtmlLintReport() {
         .container {
             flex: 1;
             overflow-y: auto;
-            padding: 2rem;
+            padding: 1.25rem 2rem 2rem 2rem;
         }
+
+        /* Filters toolbar to match screenshot */
+        .filters-toolbar {
+            position: sticky;
+            top: 0;
+            z-index: 8;
+            background: hsl(var(--secondary));
+            backdrop-filter: blur(4px);
+            padding: .75rem 1rem;
+            border: 1px solid hsl(var(--border));
+            border-radius: 10px;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: .75rem;
+        }
+        .filters-title { font-weight: 600; color: hsl(var(--foreground)); display: inline-flex; align-items: center; gap:.4rem; }
+        .chip-filter { display:inline-flex; align-items:center; gap:.35rem; background: hsl(var(--primary) / .12); color:hsl(var(--foreground)); border:1px solid hsl(var(--primary)); padding:.25rem .5rem; border-radius:999px; font-size:.8rem; }
+        .chip-toggle { display:inline-flex; align-items:center; gap:.35rem; background:hsl(var(--secondary)); color:hsl(var(--foreground)); border:1px solid hsl(var(--border)); padding:.25rem .6rem; border-radius:999px; font-size:.8rem; cursor:pointer; }
+        .chip-toggle.active { background:hsl(var(--primary) / .15); color:hsl(var(--foreground)); border-color:hsl(var(--primary)); }
 
         .summary {
             display: grid;
@@ -713,84 +801,104 @@ async function generateHtmlLintReport() {
             margin-bottom: 2rem;
         }
 
-        .summary-card {
-            background: hsl(0, 0%, 5%);
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            border: 1px solid hsl(0, 0%, 15%);
-            border-left: 4px solid hsl(217, 91%, 60%);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
+        .summary-card { background: hsl(var(--card)); padding: 1.25rem 1.5rem; border-radius: 12px; box-shadow: 0 4px 12px hsl(var(--background) / 0.6); border: 1px solid hsl(var(--border)); border-left: 4px solid hsl(var(--primary)); transition: transform 0.2s, box-shadow 0.2s; display:flex; gap:.75rem; align-items:center; }
 
-        .summary-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(0,0,0,0.4);
-        }
+        .summary-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px hsl(var(--background) / 0.7); }
 
-        .summary-card.errors {
-            border-left-color: hsl(0, 84%, 60%);
-        }
+        .summary-card.errors { border-left-color: hsl(var(--destructive)); }
 
-        .summary-card.warnings {
-            border-left-color: hsl(38, 92%, 50%);
-        }
+        .summary-card.warnings { border-left-color: hsl(var(--warning)); }
 
-        .summary-card.files {
-            border-left-color: hsl(217, 91%, 60%);
-        }
+        .summary-card.files { border-left-color: hsl(var(--primary)); }
 
-        .summary-card .label {
-            font-size: 0.85rem;
-            color: hsl(0, 0%, 65%);
+        .summary-card .label { font-size: 0.85rem; color: hsl(var(--muted-foreground));
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-bottom: 0.5rem;
         }
 
-        .summary-card .value {
-            font-size: 2.5rem;
-            font-weight: bold;
-            color: hsl(0, 0%, 98%);
-        }
+        .summary-card .value { font-size: 2.5rem; font-weight: bold; color: hsl(var(--foreground)); }
 
         .section {
-            background: hsl(0, 0%, 5%);
+            background: hsl(var(--card));
             border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            border: 1px solid hsl(0, 0%, 15%);
+            box-shadow: 0 4px 12px hsl(var(--background) / 0.6);
+            border: 1px solid hsl(var(--border));
             margin-bottom: 2rem;
             overflow: hidden;
         }
 
         .section-header {
-            background: hsl(0, 0%, 8%);
+            background: hsl(var(--secondary));
             padding: 1.25rem 1.5rem;
-            border-bottom: 1px solid hsl(0, 0%, 15%);
+            border-bottom: 1px solid hsl(var(--border));
             font-weight: 600;
             font-size: 1.1rem;
-            color: hsl(0, 0%, 98%);
+            color: hsl(var(--foreground));
         }
 
         .section-content {
             padding: 1.5rem;
         }
 
+        /* Charts */
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+        .chart-card { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 1rem; }
+        .chart-title { font-weight: 600; margin-bottom: 0.75rem; color: hsl(var(--foreground)); display: flex; align-items: center; gap: .5rem; }
+        .bar-chart { display: flex; align-items: flex-end; gap: .75rem; height: 180px; padding: .5rem 0; border-bottom: 1px dashed hsl(var(--border)); }
+        .bar { width: 28px; background: hsl(var(--primary)); border-radius: 4px 4px 0 0; position: relative; }
+        .bar:hover { filter: brightness(1.1); }
+        .bar-label { writing-mode: vertical-rl; transform: rotate(180deg); font-size: .75rem; color: hsl(var(--muted-foreground)); text-align: center; margin-top: .5rem; max-height: 48px; overflow: hidden; }
+        .bar-wrap { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+        .bar-value { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: .75rem; color: hsl(var(--foreground)); }
+        .donut-wrap { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+        .donut { width: 160px; height: 160px; border-radius: 50%; background: conic-gradient(${donutStops || 'hsl(var(--muted)) 0 100%'}); position: relative; }
+        .donut::after { content: ''; position: absolute; inset: 18%; background: hsl(var(--card)); border-radius: 50%; }
+        .legend { display: grid; grid-auto-rows: minmax(20px, auto); gap: .35rem; min-width: 200px; }
+        .legend-item { display: flex; align-items: center; gap: .5rem; color: hsl(var(--foreground)); }
+        .legend-swatch { width: 12px; height: 12px; border-radius: 3px; }
+
+        /* Collapsible sections */
+        .section.collapsible .section-header { cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
+        .section.collapsed .section-content { display: none; }
+        .caret { display:inline-block; transition: transform .2s; opacity: .8; }
+        .section.collapsed .caret { transform: rotate(-90deg); opacity: .6; }
+
+        /* Responsive */
+        .table-responsive { width: 100%; overflow-x: auto; }
+        @media (max-width: 1024px) {
+            .main-content { flex-direction: column; }
+            .sidebar { width: 100%; max-height: 260px; border-right: none; border-bottom: 1px solid hsl(var(--border)); }
+            .container { padding: 1rem; }
+            .charts-grid { grid-template-columns: 1fr; }
+            .summary { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; }
+            .controls-bar { flex-wrap: wrap; }
+        }
+        @media (max-width: 640px) {
+            .header h1 { font-size: 1.25rem; }
+            .header .subtitle { font-size: 0.8rem; }
+            .line-number { width: 36px; padding: 0 0.5rem; }
+            .code-snippet { font-size: 0.8rem; }
+            .btn-copy { display: none; }
+        }
+
         .controls-bar {
             display: flex;
             gap: 0.75rem;
             align-items: center;
-            background: hsl(0, 0%, 6%);
-            border: 1px solid hsl(0, 0%, 12%);
+            background: hsl(var(--secondary));
+            border: 1px solid hsl(var(--border));
             border-radius: 8px;
             padding: 0.5rem 0.75rem;
             margin-bottom: 1rem;
         }
-        .controls-bar .control { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: hsl(0,0%,85%); }
-        .controls-bar input[type="checkbox"] { accent-color: hsl(217, 91%, 60%); }
-        .chip { display: none; background: hsl(217,91%,60%,0.15); color: hsl(217,91%,80%); border: 1px solid hsl(217,91%,45%); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.8rem; }
-        .btn-clear { display: none; align-items: center; gap: 0.25rem; border: 1px solid hsl(0,0%,20%); background: hsl(0,0%,8%); color: hsl(0,0%,85%); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
-        .btn-copy { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid hsl(0,0%,20%); background: hsl(0,0%,8%); color: hsl(0,0%,85%); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
+        .controls-bar .control { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: hsl(var(--foreground)); }
+        .controls-bar input[type="checkbox"] { accent-color: hsl(var(--primary)); }
+        .chip { display: none; background: hsl(var(--primary) / 0.15); color: hsl(var(--foreground)); border: 1px solid hsl(var(--primary)); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.8rem; }
+        .btn-clear { display: none; align-items: center; gap: 0.25rem; border: 1px solid hsl(var(--border)); background: hsl(var(--secondary)); color: hsl(var(--foreground)); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
+        .btn-copy { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid hsl(var(--border)); background: hsl(var(--secondary)); color: hsl(var(--foreground)); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
+        .btn-primary { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid hsl(var(--primary)); background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); padding: .5rem .9rem; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        .btn-primary:hover { filter: brightness(1.05); }
         .rules-table tbody tr { cursor: pointer; }
 
         .rules-table {
@@ -799,32 +907,26 @@ async function generateHtmlLintReport() {
         }
 
         .rules-table th {
-            background: hsl(0, 0%, 8%);
+            background: hsl(var(--secondary));
             padding: 0.75rem 1rem;
             text-align: left;
             font-weight: 600;
             font-size: 0.85rem;
-            color: hsl(0, 0%, 70%);
+            color: hsl(var(--muted-foreground));
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            border-bottom: 2px solid hsl(0, 0%, 15%);
+            border-bottom: 2px solid hsl(var(--border));
         }
 
         .rules-table td {
             padding: 0.75rem 1rem;
-            border-bottom: 1px solid hsl(0, 0%, 15%);
-            color: hsl(0, 0%, 90%);
+            border-bottom: 1px solid hsl(var(--border));
+            color: hsl(var(--foreground));
         }
 
-        .rules-table tr:hover {
-            background: hsl(0, 0%, 8%);
-        }
+        .rules-table tr:hover { background: hsl(var(--secondary)); }
 
-        .rule-name {
-            font-family: 'Monaco', 'Menlo', monospace;
-            font-size: 0.9rem;
-            color: hsl(217, 91%, 60%);
-        }
+        .rule-name { font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9rem; color: hsl(var(--primary)); }
 
         .badge {
             display: inline-block;
@@ -835,48 +937,27 @@ async function generateHtmlLintReport() {
             margin-right: 0.5rem;
         }
 
-        .badge-error {
-            background: hsl(0, 84%, 60%, 0.2);
-            color: hsl(0, 84%, 70%);
-            border: 1px solid hsl(0, 84%, 60%, 0.3);
-        }
+        .badge-error { background: hsl(var(--destructive) / 0.2); color: hsl(var(--destructive-foreground)); border: 1px solid hsl(var(--destructive) / 0.3); }
 
-        .badge-warning {
-            background: hsl(38, 92%, 50%, 0.2);
-            color: hsl(38, 92%, 60%);
-            border: 1px solid hsl(38, 92%, 50%, 0.3);
-        }
+        .badge-warning { background: hsl(var(--warning) / 0.2); color: hsl(var(--warning-foreground)); border: 1px solid hsl(var(--warning) / 0.3); }
 
-        .file-issue {
-            margin-bottom: 2rem;
-            border: 1px solid hsl(0, 0%, 15%);
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            background: hsl(0, 0%, 5%);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
+        .file-issue { margin-bottom: 2rem; border: 1px solid hsl(var(--border)); border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px hsl(var(--background) / 0.6); background: hsl(var(--card)); transition: transform 0.2s, box-shadow 0.2s; }
 
-        .file-issue:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-        }
+        .file-issue:hover { transform: translateY(-2px); box-shadow: 0 6px 16px hsl(var(--background) / 0.7); }
 
         .file-header {
-            background: hsl(0, 0%, 8%);
-            color: white;
+            background: hsl(var(--secondary));
+            color: hsl(var(--foreground));
             padding: 1rem 1.25rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
             cursor: pointer;
             user-select: none;
-            border-bottom: 1px solid hsl(0, 0%, 15%);
+            border-bottom: 1px solid hsl(var(--border));
         }
 
-        .file-header:hover {
-            background: hsl(0, 0%, 10%);
-        }
+        .file-header:hover { background: hsl(var(--secondary) / 0.9); }
 
         .file-header-left {
             display: flex;
@@ -911,9 +992,7 @@ async function generateHtmlLintReport() {
             content: '+';
         }
 
-        .file-collapsed .collapse-toggle {
-            background: rgba(255, 255, 255, 0.1);
-        }
+        .file-collapsed .collapse-toggle { background: hsl(var(--foreground) / 0.1); }
 
         .file-path {
             font-family: 'Monaco', 'Menlo', monospace;
@@ -936,11 +1015,7 @@ async function generateHtmlLintReport() {
             max-height: 0;
         }
 
-        .issue {
-            border-bottom: 1px solid hsl(0, 0%, 15%);
-            padding: 1.25rem;
-            background: hsl(0, 0%, 5%);
-        }
+        .issue { border-bottom: 1px solid hsl(var(--border)); padding: 1.25rem; background: hsl(var(--card)); }
 
         .issue:last-child {
             border-bottom: none;
@@ -965,35 +1040,17 @@ async function generateHtmlLintReport() {
             flex-shrink: 0;
         }
 
-        .severity-error {
-            background: hsl(0, 84%, 60%, 0.2);
-            color: hsl(0, 84%, 70%);
-            border: 1px solid hsl(0, 84%, 60%, 0.3);
-        }
+        .severity-error { background: hsl(var(--destructive) / 0.2); color: hsl(var(--destructive-foreground)); border: 1px solid hsl(var(--destructive) / 0.3); }
 
-        .severity-warning {
-            background: hsl(38, 92%, 50%, 0.2);
-            color: hsl(38, 92%, 60%);
-            border: 1px solid hsl(38, 92%, 50%, 0.3);
-        }
+        .severity-warning { background: hsl(var(--warning) / 0.2); color: hsl(var(--warning-foreground)); border: 1px solid hsl(var(--warning) / 0.3); }
 
         .issue-details {
             flex: 1;
         }
 
-        .issue-message {
-            font-size: 1rem;
-            color: hsl(0, 0%, 98%);
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-        }
+        .issue-message { font-size: 1rem; color: hsl(var(--foreground)); margin-bottom: 0.5rem; font-weight: 500; }
 
-        .issue-meta {
-            display: flex;
-            gap: 1.5rem;
-            font-size: 0.85rem;
-            color: hsl(0, 0%, 65%);
-        }
+        .issue-meta { display: flex; gap: 1.5rem; font-size: 0.85rem; color: hsl(var(--muted-foreground)); }
 
         .issue-meta-item {
             display: flex;
@@ -1001,9 +1058,7 @@ async function generateHtmlLintReport() {
             gap: 0.25rem;
         }
 
-        .code-snippet {
-            background: hsl(0, 0%, 2%);
-            border: 1px solid hsl(0, 0%, 15%);
+        .code-snippet { background: hsl(var(--code-bg)); border: 1px solid hsl(var(--border));
             border-radius: 8px;
             overflow-x: auto;
             font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
@@ -1018,25 +1073,15 @@ async function generateHtmlLintReport() {
             line-height: 1.5;
         }
 
-        .code-line.error-line {
-            background: hsl(0, 84%, 60%, 0.15);
-            border-left-color: hsl(0, 84%, 60%);
-        }
+        .code-line.error-line { background: hsl(var(--destructive) / 0.15); border-left-color: hsl(var(--destructive)); }
 
-        .line-number {
-            display: inline-block;
-            width: 50px;
-            padding: 0 1rem;
-            color: hsl(0, 0%, 50%);
+        .line-number { display: inline-block; width: 50px; padding: 0 1rem; color: hsl(var(--muted-foreground));
             text-align: right;
             user-select: none;
             flex-shrink: 0;
         }
 
-        .error-line .line-number {
-            color: hsl(0, 84%, 70%);
-            font-weight: bold;
-        }
+        .error-line .line-number { color: hsl(var(--destructive-foreground)); font-weight: bold; }
 
         .line-content {
             flex: 1;
@@ -1048,8 +1093,7 @@ async function generateHtmlLintReport() {
             font-family: inherit;
         }
 
-        .error-arrow {
-            color: hsl(0, 84%, 70%);
+        .error-arrow { color: hsl(var(--destructive-foreground));
             font-weight: bold;
             margin-left: 50px;
             padding: 0.25rem 1rem;
@@ -1073,19 +1117,19 @@ async function generateHtmlLintReport() {
             align-items: center;
             justify-content: center;
             padding: 0.5rem;
-            background: hsl(0, 0%, 8%);
-            color: hsl(0, 0%, 60%);
+            background: hsl(var(--secondary));
+            color: hsl(var(--muted-foreground));
             cursor: pointer;
             user-select: none;
-            border-top: 1px solid hsl(0, 0%, 15%);
-            border-bottom: 1px solid hsl(0, 0%, 15%);
+            border-top: 1px solid hsl(var(--border));
+            border-bottom: 1px solid hsl(var(--border));
             font-size: 0.8rem;
             transition: background 0.2s, color 0.2s;
         }
 
         .expand-toggle:hover {
-            background: hsl(0, 0%, 10%);
-            color: hsl(0, 0%, 90%);
+            background: hsl(var(--secondary) / 0.9);
+            color: hsl(var(--foreground));
         }
 
         .expand-toggle-icon { margin-right: 0.5rem; transition: transform 0.2s; }
@@ -1098,11 +1142,7 @@ async function generateHtmlLintReport() {
             opacity: 0.85;
         }
 
-        .no-issues {
-            text-align: center;
-            padding: 3rem;
-            color: hsl(142, 76%, 50%);
-        }
+        .no-issues { text-align: center; padding: 3rem; color: hsl(var(--success)); }
 
         .no-issues-icon { margin-bottom: 1rem; }
 
@@ -1125,9 +1165,7 @@ async function generateHtmlLintReport() {
             gap: 0.5rem;
         }
 
-        .tree-folder-header:hover {
-            background: hsl(0, 0%, 8%);
-        }
+        .tree-folder-header:hover { background: hsl(var(--secondary)); }
 
         .tree-folder-content {
             margin-left: 0.5rem;
@@ -1148,14 +1186,9 @@ async function generateHtmlLintReport() {
             margin: 0.25rem 0;
         }
 
-        .tree-file:hover {
-            background: hsl(0, 0%, 8%);
-        }
+        .tree-file:hover { background: hsl(var(--secondary)); }
 
-        .tree-file.active {
-            background: hsl(217, 91%, 60%, 0.1);
-            border-left: 3px solid hsl(217, 91%, 60%);
-        }
+        .tree-file.active { background: hsl(var(--primary) / 0.1); border-left: 3px solid hsl(var(--primary)); }
 
         .tree-icon { flex-shrink: 0; }
 
@@ -1167,10 +1200,7 @@ async function generateHtmlLintReport() {
             transform: rotate(-90deg);
         }
 
-        .tree-name {
-            flex: 1;
-            font-size: 0.9rem;
-            color: hsl(0, 0%, 90%);
+        .tree-name { flex: 1; font-size: 0.9rem; color: hsl(var(--foreground));
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -1190,37 +1220,11 @@ async function generateHtmlLintReport() {
             font-weight: 600;
         }
 
-        .tree-badge-error {
-            background: hsl(0, 84%, 60%, 0.2);
-            color: hsl(0, 84%, 70%);
-            border: 1px solid hsl(0, 84%, 60%, 0.3);
-        }
+        .tree-badge-error { background: hsl(var(--destructive) / 0.2); color: hsl(var(--destructive-foreground)); border: 1px solid hsl(var(--destructive) / 0.3); }
 
-        .tree-badge-warning {
-            background: hsl(38, 92%, 50%, 0.2);
-            color: hsl(38, 92%, 60%);
-            border: 1px solid hsl(38, 92%, 50%, 0.3);
-        }
+        .tree-badge-warning { background: hsl(var(--warning) / 0.2); color: hsl(var(--warning-foreground)); border: 1px solid hsl(var(--warning) / 0.3); }
 
-        .filter-info {
-            background: hsl(217, 91%, 60%, 0.1);
-            border: 1px solid hsl(217, 91%, 60%, 0.3);
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-            color: hsl(217, 91%, 70%);
-        }
-
-        .filter-info strong {
-            color: hsl(217, 91%, 80%);
-        }
-
-        .filter-info code {
-            background: hsl(0, 0%, 8%);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.85em;
-        }
+        /* legacy filter-info removed; using filters-toolbar */
         /* Icon base */
         .icon { width: 16px; height: 16px; stroke: currentColor; fill: none; display: inline-block; }
         .icon-lg { width: 20px; height: 20px; }
@@ -1287,6 +1291,12 @@ async function generateHtmlLintReport() {
     </svg>
     <script>
         let filterState = { showErrors: true, showWarnings: true, rule: '' };
+        const urlParams = new URLSearchParams(location.search);
+        const forceFull = urlParams.get('lite') === '0' || urlParams.get('mode') === 'full';
+        const forceLite = urlParams.get('lite') === '1' || urlParams.get('mode') === 'lite';
+        const smallScreen = matchMedia('(max-width: 768px)').matches;
+        const isMobileUA = /Android|iPhone|iPad|iPod|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+        const IS_LITE = forceFull ? false : (forceLite ? true : (smallScreen || isMobileUA));
 
         function toggleExpand(button, sectionId) {
             const section = document.getElementById(sectionId);
@@ -1346,6 +1356,11 @@ async function generateHtmlLintReport() {
             fileElement.classList.toggle('file-collapsed');
         }
 
+        function toggleSectionCollapse(headerEl) {
+            const sec = headerEl.closest('.section');
+            if (sec) sec.classList.toggle('collapsed');
+        }
+
         function updateIssueFilters() {
             const issues = Array.from(document.querySelectorAll('.issue'));
             const { showErrors, showWarnings, rule } = filterState;
@@ -1386,6 +1401,11 @@ async function generateHtmlLintReport() {
             const warningsCb = document.getElementById('filter-warnings');
             filterState.showErrors = !!(errorsCb && errorsCb.checked);
             filterState.showWarnings = !!(warningsCb && warningsCb.checked);
+            // sync top chips
+            const eTop = document.getElementById('toggle-errors-top');
+            const wTop = document.getElementById('toggle-warnings-top');
+            if (eTop) eTop.classList.toggle('active', filterState.showErrors);
+            if (wTop) wTop.classList.toggle('active', filterState.showWarnings);
             updateIssueFilters();
         }
 
@@ -1397,6 +1417,24 @@ async function generateHtmlLintReport() {
         function clearRuleFilter() {
             filterState.rule = '';
             updateIssueFilters();
+        }
+
+        function toggleSeverityTop(kind) {
+            const errorsCb = document.getElementById('filter-errors');
+            const warningsCb = document.getElementById('filter-warnings');
+            if (kind === 'error' && errorsCb) {
+                errorsCb.checked = !errorsCb.checked;
+            }
+            if (kind === 'warning' && warningsCb) {
+                warningsCb.checked = !warningsCb.checked;
+            }
+            onSeverityCheckboxChange();
+        }
+
+        function mountFullReport() {
+            const url = new URL(location.href);
+            url.searchParams.set('lite', '0');
+            location.href = url.toString();
         }
 
         function copyFileLink(fileId, ev) {
@@ -1432,7 +1470,12 @@ async function generateHtmlLintReport() {
         }
 
         window.addEventListener('load', () => {
-            updateIssueFilters();
+            if (IS_LITE) {
+                const ids = ['sidebar','section-charts','section-rules','section-tsprune','section-jscpd','section-files'];
+                ids.forEach(id => { const el = document.getElementById(id); if (el) el.remove(); });
+                const cta = document.getElementById('full-report-cta'); if (cta) cta.style.display = '';
+            }
+            onSeverityCheckboxChange();
             if (location.hash) {
                 const id = location.hash.slice(1);
                 const el = document.getElementById(id);
@@ -1445,17 +1488,17 @@ async function generateHtmlLintReport() {
     </script>
     <style>
         @keyframes highlight {
-            0% { background: hsl(38, 92%, 50%, 0.2); }
+            0% { background: hsl(var(--warning) / 0.2); }
             100% { background: transparent; }
         }
 
         code {
-            background: hsl(0, 0%, 8%);
+            background: hsl(var(--secondary));
             padding: 0.125rem 0.375rem;
             border-radius: 4px;
             font-size: 0.9em;
-            color: hsl(217, 91%, 70%);
-            border: 1px solid hsl(0, 0%, 15%);
+            color: hsl(var(--primary));
+            border: 1px solid hsl(var(--border));
         }
 
         ::-webkit-scrollbar {
@@ -1464,27 +1507,27 @@ async function generateHtmlLintReport() {
         }
 
         ::-webkit-scrollbar-track {
-            background: hsl(0, 0%, 3%);
+            background: hsl(var(--background));
         }
 
         ::-webkit-scrollbar-thumb {
-            background: hsl(0, 0%, 15%);
+            background: hsl(var(--border));
             border-radius: 5px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: hsl(0, 0%, 20%);
+            background: hsl(var(--muted-foreground) / 0.5);
         }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>ESLint Quality Report</h1>
-        <div class="subtitle">Generated on ${new Date().toLocaleString()} • src/ directory</div>
+        <div class="subtitle">Generated on ${new Date().toLocaleString()} • ${escapeHtml(String(eslintTarget))}</div>
     </div>
 
     <div class="main-content">
-        <aside class="sidebar">
+        <aside id="sidebar" class="sidebar">
             <div class="sidebar-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-folder" /></svg> Files with Issues</div>
             <div class="sidebar-search">
                 <input type="text" placeholder="Search files..." oninput="filterTree(this)" />
@@ -1495,15 +1538,13 @@ async function generateHtmlLintReport() {
         </aside>
 
         <div class="container">
-        ${
-          ignorePatterns.length > 0
-            ? `
-            <div class="filter-info">
-                <strong><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-filter" /></svg> Filters Applied:</strong> Ignoring patterns: ${ignorePatterns.map((p) => `<code lang="typescript">${escapeHtml(p)}</code>`).join(', ')}
-            </div>
-        `
-            : ''
-        }
+        <div class="filters-toolbar">
+            <span class="filters-title"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-filter" /></svg> Filters</span>
+            ${ignorePatterns.length > 0 ? ignorePatterns.map((p) => `<span class="chip-filter" title="Ignored pattern"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-tag" /></svg>${escapeHtml(p)}</span>`).join('') : ''}
+            <span class="chip-toggle" id="toggle-errors-top" onclick="toggleSeverityTop('error')"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-alert" /></svg> Errors</span>
+            <span class="chip-toggle" id="toggle-warnings-top" onclick="toggleSeverityTop('warning')"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-alert" /></svg> Warnings</span>
+            <span style="margin-left:auto; color: hsl(var(--muted-foreground)); font-size:.85rem;">+ Add filters</span>
+        </div>
 
         <div class="summary">
             <div class="summary-card files">
@@ -1522,29 +1563,83 @@ async function generateHtmlLintReport() {
                 <div class="label">Warnings</div>
                 <div class="value">${warningCount}</div>
             </div>
-            <div class="summary-card" style="border-left-color: hsl(217, 91%, 60%);">
+            <div class="summary-card" style="border-left-color: hsl(var(--primary));">
                 <div class="label">Unused Exports</div>
                 <div class="value">${tsPruneData.count}</div>
             </div>
-            <div class="summary-card" style="border-left-color: hsl(38, 92%, 50%);">
+            <div class="summary-card" style="border-left-color: hsl(var(--warning));">
                 <div class="label">Code Duplicates</div>
                 <div class="value">${jscpdData.count}</div>
+            </div>
+        </div>
+
+        <div id="full-report-cta" class="section" style="display:none;">
+            <div class="section-content">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+                    <div style="color:hsl(var(--muted-foreground))">Lightweight view is active on mobile to improve performance.</div>
+                    <button class="btn-primary" onclick="mountFullReport()">Load Full Report</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Issue Distribution KPIs/Charts -->
+        <div id="section-charts" class="section">
+            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Issue Distribution Overview</div>
+            <div class="section-content">
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <div class="chart-title">By Directory (Top ${topDirs.length})</div>
+                        ${topDirs.length === 0 ? `<div style=\"color: hsl(var(--muted-foreground));\">No issues to chart.</div>` : `
+                        <div class=\"bar-chart\">
+                            ${topDirs
+                              .map(([dir, count], idx) => {
+                                const h = Math.max(4, Math.round((count / maxDirIssues) * 100));
+                                const colorVar = barColorVars[idx % barColorVars.length];
+                                return `
+                                <div class=\"bar-wrap\" title=\"${escapeHtml(dir)}: ${count}\">
+                                    <div class=\"bar\" style=\"height:${h}%; background:hsl(var(${colorVar}))\"><span class=\"bar-value\">${count}</span></div>
+                                    <div class=\"bar-label\">${escapeHtml(dir)}</div>
+                                </div>`;
+                              })
+                              .join('')}
+                        </div>`}
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title">By Type</div>
+                        <div class="donut-wrap">
+                            <div class="donut"></div>
+                            <div class="legend">
+                                ${donutData
+                                  .map(
+                                    (d) => `
+                                <div class=\"legend-item\">
+                                    <span class=\"legend-swatch\" style=\"background:${d.color}\"></span>
+                                    <span>${d.key}</span>
+                                    <span style=\"margin-left:auto; font-weight:600;\">${d.count}</span>
+                                </div>`,
+                                  )
+                                  .join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
         ${
           sortedRules.length > 0
             ? `
-        <div class="section">
-            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Issues by Rule (Top ${Math.min(15, sortedRules.length)})</div>
+        <div id=\"section-rules\" class=\"section collapsible collapsed\">
+            <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Issues by Rule (Top ${Math.min(15, sortedRules.length)})</span><span class="caret">▾</span></div>
             <div class="section-content">
-                <table class="rules-table">
+                <div class="table-responsive"><table class="rules-table">
                     <thead>
-                        <tr onclick="filterByRule('${escapeHtml(rule).replace(/'/g, '&#39;')}')">
+                        <tr>
                             <th>Rule</th>
                             <th style="text-align: center;">Total</th>
                             <th style="text-align: center;">Errors</th>
                             <th style="text-align: center;">Warnings</th>
+                            <th style="text-align: right;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1552,17 +1647,18 @@ async function generateHtmlLintReport() {
                           .slice(0, 15)
                           .map(
                             ([rule, stats]) => `
-                        <tr onclick="filterByRule('${escapeHtml(rule)}')">
+                        <tr>
                             <td class="rule-name">${escapeHtml(rule)}</td>
                             <td style="text-align: center; font-weight: bold;">${stats.count}</td>
                             <td style="text-align: center;">${stats.errors > 0 ? `<span class="badge badge-error">${stats.errors}</span>` : '—'}</td>
                             <td style="text-align: center;">${stats.warnings > 0 ? `<span class="badge badge-warning">${stats.warnings}</span>` : '—'}</td>
+                            <td style="text-align: right;"><button class="btn-copy" onclick="filterByRule('${escapeHtml(rule)}')">View Affected Files</button></td>
                         </tr>
                         `,
                           )
                           .join('')}
                     </tbody>
-                </table>
+                </table></div>
             </div>
         </div>
         `
@@ -1570,10 +1666,10 @@ async function generateHtmlLintReport() {
         }
 
         ${tsPruneData.count > 0 ? `
-        <div class="section">
-            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Unused Exports (ts-prune)</div>
+        <div id="section-tsprune" class="section collapsible collapsed">
+            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-list\" /></svg> Unused Exports (ts-prune)</span><span class=\"caret\">▾</span></div>
             <div class="section-content">
-                <table class="rules-table">
+                <div class="table-responsive"><table class="rules-table">
                     <thead>
                         <tr>
                             <th>File</th>
@@ -1590,17 +1686,17 @@ async function generateHtmlLintReport() {
                         </tr>
                         `).join('')}
                     </tbody>
-                </table>
-                ${tsPruneData.count > 100 ? `<p style="margin-top: 1rem; color: hsl(0, 0%, 65%);">Showing first 100 of ${tsPruneData.count} unused exports</p>` : ''}
+                </table></div>
+                ${tsPruneData.count > 100 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 100 of ${tsPruneData.count} unused exports</p>` : ''}
             </div>
         </div>
         ` : ''}
 
         ${jscpdData.count > 0 ? `
-        <div class="section">
-            <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-duplicate" /></svg> Code Duplicates (jscpd) - ${jscpdData.percentage.toFixed(2)}% duplication</div>
+        <div id="section-jscpd" class="section collapsible collapsed">
+            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-duplicate\" /></svg> Code Duplicates (jscpd) - ${jscpdData.percentage.toFixed(2)}% duplication</span><span class=\"caret\">▾</span></div>
             <div class="section-content">
-                <table class="rules-table">
+                <div class="table-responsive"><table class="rules-table">
                     <thead>
                         <tr>
                             <th>File 1</th>
@@ -1621,13 +1717,13 @@ async function generateHtmlLintReport() {
                         </tr>
                         `).join('')}
                     </tbody>
-                </table>
-                ${jscpdData.count > 50 ? `<p style="margin-top: 1rem; color: hsl(0, 0%, 65%);">Showing first 50 of ${jscpdData.count} duplicates</p>` : ''}
+                </table></div>
+                ${jscpdData.count > 50 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 50 of ${jscpdData.count} duplicates</p>` : ''}
             </div>
         </div>
         ` : ''}
 
-        <div class="section">
+        <div id="section-files" class="section">
             <div class="section-header"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-search" /></svg> ESLint Issues by File</div>
             <div class="section-content">
                 <div class="controls-bar">

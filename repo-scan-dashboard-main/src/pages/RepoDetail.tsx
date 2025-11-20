@@ -1,11 +1,13 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, FileText, Calendar, AlertCircle, Code2, Activity, ListChecks, Bug, TrendingUp, Percent } from 'lucide-react';
+import { ArrowLeft, FileText, Calendar, AlertCircle, Code2, Activity, ListChecks, Bug, TrendingUp, Percent, Clock, GitBranch } from '@/icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { AnalysisForm } from '@/components/AnalysisForm';
-import { JobProgress } from '@/components/JobProgress';
+import { JobStatusCompact } from '@/components/JobStatusCompact';
+import { toast } from '@/components/ui/sonner';
 import {
   Pagination,
   PaginationContent,
@@ -17,8 +19,9 @@ import {
 } from '@/components/ui/pagination';
 import { Repository, ReportSummary, AnalysisJob, AnalysisOptions, HistoryEntry } from '@/types';
 import { API_URL } from '@/lib/config-client';
+import { cn } from '@/lib/utils';
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 5;
 
 export default function RepoDetail() {
   const { slug } = useParams<{ slug: string }>();
@@ -27,11 +30,19 @@ export default function RepoDetail() {
   const [currentJob, setCurrentJob] = useState<AnalysisJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const pollingCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (slug) {
       fetchRepoData();
     }
+    
+    return () => {
+      if (pollingCleanupRef.current) {
+        pollingCleanupRef.current();
+        pollingCleanupRef.current = null;
+      }
+    };
   }, [slug]);
 
   const fetchRepoData = async () => {
@@ -104,8 +115,9 @@ export default function RepoDetail() {
         )
       : 0;
     const lastUnused = last?.metrics?.tsPrune?.count ?? 0;
-    return { totalRuns, lastIssues, lastErrors, lastWarnings, deltaIssues, avgIssues, avgDupPerc, lastUnused };
-  }, [historyList]);
+    const lastGeneratedAt = last?.generatedAt || reports?.generatedAt;
+    return { totalRuns, lastIssues, lastErrors, lastWarnings, deltaIssues, avgIssues, avgDupPerc, lastUnused, lastGeneratedAt };
+  }, [historyList, reports]);
 
   const totalPages = useMemo(() => {
     return Math.ceil(historyList.length / ITEMS_PER_PAGE);
@@ -125,45 +137,104 @@ export default function RepoDetail() {
       }
 
       const { jobId } = await response.json();
-      pollJobStatus(jobId);
+      
+      setCurrentJob({
+        id: jobId,
+        repoSlug: slug!,
+        status: 'queued',
+        mode: options.mode,
+        options,
+        logs: [],
+      });
+      
+      if (pollingCleanupRef.current) {
+        pollingCleanupRef.current();
+      }
+      pollingCleanupRef.current = pollJobStatus(jobId) || null;
     } catch (error) {
       console.error('Error starting analysis:', error);
-      alert(error instanceof Error ? error.message : 'Error al iniciar análisis');
+      toast.error('Error al iniciar análisis', {
+        description: error instanceof Error ? error.message : 'Error desconocido',
+      });
     }
   };
 
   const pollJobStatus = async (jobId: string) => {
+    const fetchJobStatus = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/jobs/${jobId}/status`);
+        if (!response.ok) throw new Error('Failed to fetch job status');
+        const job: AnalysisJob = await response.json();
+        setCurrentJob(job);
+        return job;
+      } catch (error) {
+        console.error('Error fetching job status:', error);
+        return null;
+      }
+    };
+
+    const initialJob = await fetchJobStatus();
+    if (initialJob && (initialJob.status === 'succeeded' || initialJob.status === 'failed')) {
+      fetchRepoData();
+      return;
+    }
+
     const eventSource = new EventSource(`${API_URL}/api/jobs/${jobId}/stream`);
 
     eventSource.addEventListener('message', (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.type === 'status') {
-        if (data.data === 'succeeded' || data.data === 'failed') {
-          eventSource.close();
-          fetchRepoData();
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'status') {
+          setCurrentJob(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              status: data.data,
+            };
+          });
+          
+          if (data.data === 'succeeded' || data.data === 'failed') {
+            eventSource.close();
+            fetchJobStatus().then(() => fetchRepoData());
+          }
+        } else if (data.type === 'log') {
+          setCurrentJob(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              logs: [...prev.logs, data.data],
+            };
+          });
         }
+      } catch (error) {
+        console.error('Error parsing SSE message:', error);
       }
     });
 
-    eventSource.onerror = () => {
+    eventSource.onerror = (error) => {
+      console.error('EventSource error:', error);
       eventSource.close();
     };
 
     const interval = setInterval(async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/jobs/${jobId}/status`);
-        const job: AnalysisJob = await response.json();
-        setCurrentJob(job);
-
-        if (job.status === 'succeeded' || job.status === 'failed') {
-          clearInterval(interval);
-          fetchRepoData();
-        }
-      } catch (error) {
+      const job = await fetchJobStatus();
+      if (job && (job.status === 'succeeded' || job.status === 'failed')) {
         clearInterval(interval);
+        if (eventSource.readyState !== EventSource.CLOSED) {
+          eventSource.close();
+        }
+        fetchRepoData();
+        pollingCleanupRef.current = null;
       }
     }, 2000);
+
+    return () => {
+      clearInterval(interval);
+      if (eventSource.readyState !== EventSource.CLOSED) {
+        eventSource.close();
+      }
+    };
   };
 
   if (loading) {
@@ -193,45 +264,50 @@ export default function RepoDetail() {
     );
   }
 
+  const getIssueBadgeVariant = (issues: number, errors: number, warnings: number) => {
+    if (issues === 0) return 'success';
+    if (errors > 0) return 'destructive';
+    if (warnings > 0) return 'warning';
+    return 'secondary';
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95">
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiMxYTE5MjYiIGZpbGwtb3BhY2l0eT0iMC4wMyI+PGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMS41Ii8+PC9nPjwvZz48L3N2Zz4=')] opacity-40"></div>
-      
-      <header className="relative border-b border-border/50 bg-card/50 backdrop-blur-sm">
-        <div className="container mx-auto px-6 py-8">
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-border bg-card/30">
+        <div className="container mx-auto px-6 py-5">
           <div className="flex items-center gap-4">
             <Link to="/">
               <Button
                 variant="ghost"
                 size="sm"
-                className="gap-2 bg-transparent border border-transparent hover:border-primary/20 hover:bg-primary hover:text-white transition-colors"
+                className="gap-2"
               >
                 <ArrowLeft className="h-4 w-4" />
                 Volver
               </Button>
             </Link>
-            <div className="p-3 rounded-xl bg-primary/10">
-              <Code2 className="h-6 w-6 text-primary" />
+            <div className="p-2 rounded-lg bg-primary/10">
+              <Code2 className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent mb-2">
-                {repo.name}
-              </h1>
-              <p className="text-muted-foreground">{repo.description || 'Sin descripción'}</p>
+              <h1 className="text-2xl font-semibold">{repo.name}</h1>
+              <p className="text-sm text-muted-foreground">{repo.description || 'Sin descripción'}</p>
             </div>
           </div>
         </div>
       </header>
 
-      <main className="relative container mx-auto px-6 py-10">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-1 space-y-6">
-            <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-              <CardHeader>
-                <CardTitle className="text-xl">Nuevo Análisis</CardTitle>
-                <CardDescription>Configura y ejecuta un análisis del repositorio</CardDescription>
+      <main className="container mx-auto px-6 py-6">
+        <div className="space-y-6">
+          {/* Fila principal: Configuración + Resultados (igual altura) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
+          <div className="lg:col-span-1">
+            <Card className="border-border/50 h-[820px] flex flex-col overflow-hidden">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-lg">Configuración</CardTitle>
+                <CardDescription className="text-xs">Configura y ejecuta un análisis</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-5 flex-1 flex flex-col">
                 <AnalysisForm
                   repoSlug={slug!}
                   repoUrl={repo.repoUrl}
@@ -240,204 +316,210 @@ export default function RepoDetail() {
                 />
               </CardContent>
             </Card>
+            </div>
 
-            {currentJob && (
-              <JobProgress job={currentJob} />
-            )}
-          </div>
-
-          <div className="lg:col-span-2">
-            <Card className="bg-card/50 backdrop-blur-sm border-border/50">
-              <CardHeader>
-                <CardTitle className="text-xl">Reportes Disponibles</CardTitle>
-                <CardDescription>Historial de análisis del repositorio</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {/* KPIs */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Análisis</p>
-                      <p className="text-2xl font-semibold">{kpis.totalRuns}</p>
+            <div className="lg:col-span-2">
+              <Card className="border-border/50 h-[820px] flex flex-col overflow-hidden">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg">Resultados del Repositorio</CardTitle>
+                  <CardDescription className="text-xs">KPIs y análisis ejecutados</CardDescription>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col min-h-0">
+                  {/* KPIs compactos */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
+                    <div className="rounded-md border border-border/50 p-3 bg-card/30">
+                      <p className="text-xs text-muted-foreground">Issues último</p>
+                      <p className="text-base font-semibold">{kpis.lastIssues}</p>
                     </div>
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <Activity className="h-5 w-5 text-primary" />
+                    <div className="rounded-md border border-border/50 p-3 bg-card/30">
+                      <p className="text-xs text-muted-foreground">Tendencia</p>
+                      <p className={cn(
+                        "text-base font-semibold",
+                        kpis.deltaIssues > 0 && "text-destructive",
+                        kpis.deltaIssues < 0 && "text-green-500",
+                        kpis.deltaIssues === 0 && "text-muted-foreground"
+                      )}>{kpis.deltaIssues > 0 ? '+' : ''}{kpis.deltaIssues}</p>
+                    </div>
+                    <div className="rounded-md border border-border/50 p-3 bg-card/30">
+                      <p className="text-xs text-muted-foreground">Promedio</p>
+                      <p className="text-base font-semibold">{kpis.avgIssues}</p>
+                    </div>
+                    <div className="rounded-md border border-border/50 p-3 bg-card/30">
+                      <p className="text-xs text-muted-foreground">Duplicación</p>
+                      <p className="text-base font-semibold">{kpis.avgDupPerc ? kpis.avgDupPerc.toFixed(2) : '0.00'}%</p>
+                    </div>
+                    <div className="rounded-md border border-border/50 p-3 bg-card/30">
+                      <p className="text-xs text-muted-foreground">Total análisis</p>
+                      <p className="text-base font-semibold">{kpis.totalRuns}</p>
+                    </div>
+                    <div className="rounded-md border border-border/50 p-3 bg-card/30">
+                      <p className="text-xs text-muted-foreground">Último</p>
+                      <p className="text-xs font-medium">{kpis.lastGeneratedAt ? new Date(kpis.lastGeneratedAt).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</p>
                     </div>
                   </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Último: Issues</p>
-                      <p className="text-2xl font-semibold">{kpis.lastIssues}</p>
-                      <p className="text-[11px] text-muted-foreground">E: {kpis.lastErrors} · W: {kpis.lastWarnings}</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <ListChecks className="h-5 w-5 text-primary" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Tendencia issues</p>
-                      <p className={`text-2xl font-semibold ${kpis.deltaIssues > 0 ? 'text-red-500' : kpis.deltaIssues < 0 ? 'text-green-500' : ''}`}>
-                        {kpis.deltaIssues > 0 ? '+' : ''}{kpis.deltaIssues}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">vs análisis anterior</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <TrendingUp className="h-5 w-5 text-primary" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Promedio issues</p>
-                      <p className="text-2xl font-semibold">{kpis.avgIssues}</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <Bug className="h-5 w-5 text-primary" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Duplicación media</p>
-                      <p className="text-2xl font-semibold">{kpis.avgDupPerc ? kpis.avgDupPerc.toFixed(2) : '0.00'}%</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <Percent className="h-5 w-5 text-primary" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
-                    <div>
-                      <p className="text-xs text-muted-foreground">Exports sin uso (últ.)</p>
-                      <p className="text-2xl font-semibold">{kpis.lastUnused}</p>
-                    </div>
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <FileText className="h-5 w-5 text-primary" />
-                    </div>
-                  </div>
-                </div>
-
-                {!reports || historyList.length === 0 ? (
-                  <Alert className="bg-muted/30 border-border/50">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      No hay reportes disponibles. Ejecuta un análisis para generar el primer reporte.
-                    </AlertDescription>
-                  </Alert>
-                ) : (
-                  <>
-                    <div className="space-y-3 mb-6">
-                      {paginatedHistory.map((run) => (
-                        <div
-                          key={run.id}
-                          className="group flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30 hover:bg-card/50 hover:border-primary/30 transition-all duration-200"
-                        >
-                          <div className="flex items-center gap-4">
-                            <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
-                              <FileText className="h-5 w-5 text-primary" />
-                            </div>
-                            <div>
-                              <p className="font-semibold text-foreground">{run.name}</p>
-                              <p className="text-xs text-muted-foreground mt-0.5">{new Date(run.generatedAt).toLocaleString('es-ES')}</p>
-                              {run.metrics && (
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {run.metrics.totalIssues ?? 0} issues · {run.metrics.errorCount ?? 0} errores · {run.metrics.warningCount ?? 0} warnings
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <a
-                            href={`${API_URL}/api/repos/${slug}/reports/${encodeURIComponent(run.id)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <Button size="sm" className="gap-2">
-                              Ver Reporte
-                            </Button>
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-
-                    {totalPages > 1 && (
-                      <div className="mt-6 pt-6 border-t border-border/50">
-                        <Pagination>
-                          <PaginationContent>
-                            <PaginationItem>
-                              <PaginationPrevious
-                                href="#"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  if (currentPage > 1) setCurrentPage(currentPage - 1);
-                                }}
-                                className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
-                              />
-                            </PaginationItem>
+                  <div className="h-px bg-border mb-4" />
+                  {!reports || historyList.length === 0 ? (
+                    <Alert className="bg-muted/30 border-border/50">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="text-sm">
+                        No hay reportes disponibles. Ejecuta un análisis para generar el primer reporte.
+                      </AlertDescription>
+                    </Alert>
+                  ) : (
+                    <>
+                        <div className="space-y-3 flex-1 pr-1">
+                          {paginatedHistory.map((run) => {
+                            const issues = run.metrics?.totalIssues ?? 0;
+                            const errors = run.metrics?.errorCount ?? 0;
+                            const warnings = run.metrics?.warningCount ?? 0;
+                            const badgeVariant = getIssueBadgeVariant(issues, errors, warnings);
                             
-                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                              if (
-                                page === 1 ||
-                                page === totalPages ||
-                                (page >= currentPage - 1 && page <= currentPage + 1)
-                              ) {
-                                return (
-                                  <PaginationItem key={page}>
-                                    <PaginationLink
-                                      href="#"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        setCurrentPage(page);
-                                      }}
-                                      isActive={currentPage === page}
-                                    >
-                                      {page}
-                                    </PaginationLink>
-                                  </PaginationItem>
-                                );
-                              } else if (page === currentPage - 2 || page === currentPage + 2) {
-                                return (
-                                  <PaginationItem key={page}>
-                                    <PaginationEllipsis />
-                                  </PaginationItem>
-                                );
-                              }
-                              return null;
-                            })}
-
-                            <PaginationItem>
-                              <PaginationNext
-                                href="#"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-                                }}
-                                className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
-                              />
-                            </PaginationItem>
-                          </PaginationContent>
-                        </Pagination>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between text-sm text-muted-foreground pt-4 mt-4 border-t border-border/50">
-                      {reports?.generatedAt && (
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4" />
-                          <span>Última actualización: {new Date(reports.generatedAt).toLocaleString('es-ES')}</span>
+                            return (
+                              <div
+                                key={run.id}
+                                className="group flex items-center justify-between p-4 border border-border/50 rounded-lg bg-card/30 hover:bg-card/50 hover:border-primary/30 transition-all duration-200"
+                              >
+                            <div className="flex items-center gap-4 flex-1">
+                              <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
+                                <GitBranch className="h-4 w-4 text-primary" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h3 className="font-semibold text-base truncate">{run.name}</h3>
+                                  <Badge 
+                                    variant={badgeVariant}
+                                    className="text-xs"
+                                  >
+                                    {issues === 0 ? 'Sin issues' : `${issues} issue${issues !== 1 ? 's' : ''}`}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span>{new Date(run.generatedAt).toLocaleString('es-ES', { 
+                                    day: '2-digit', 
+                                    month: 'short',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}</span>
+                                  {run.metrics && (
+                                    <>
+                                      {errors > 0 && (
+                                        <span className="text-destructive">E: {errors}</span>
+                                      )}
+                                      {warnings > 0 && (
+                                        <span className="text-warning">W: {warnings}</span>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <a
+                              href={`${API_URL}/api/repos/${slug}/reports/${encodeURIComponent(run.id)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-4"
+                            >
+                              <Button size="sm" variant="outline" className="gap-2">
+                                <FileText className="h-4 w-4" />
+                                Ver
+                              </Button>
+                            </a>
+                          </div>
+                        );
+                      })}
                         </div>
-                      )}
-                      <span>
-                        Mostrando {historyList.length === 0 ? 0 : ((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, historyList.length)} de {historyList.length}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
+
+                        {totalPages > 1 && (
+                          <div className="pt-3 border-t border-border/50">
+                            <Pagination>
+                              <PaginationContent>
+                                <PaginationItem>
+                                  <PaginationPrevious
+                                    href="#"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      if (currentPage > 1) setCurrentPage(currentPage - 1);
+                                    }}
+                                    className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
+                                  />
+                                </PaginationItem>
+                                
+                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                                  if (
+                                    page === 1 ||
+                                    page === totalPages ||
+                                    (page >= currentPage - 1 && page <= currentPage + 1)
+                                  ) {
+                                    return (
+                                      <PaginationItem key={page}>
+                                        <PaginationLink
+                                          href="#"
+                                          onClick={(e) => {
+                                            e.preventDefault();
+                                            setCurrentPage(page);
+                                          }}
+                                          isActive={currentPage === page}
+                                        >
+                                          {page}
+                                        </PaginationLink>
+                                      </PaginationItem>
+                                    );
+                                  } else if (page === currentPage - 2 || page === currentPage + 2) {
+                                    return (
+                                      <PaginationItem key={page}>
+                                        <PaginationEllipsis />
+                                      </PaginationItem>
+                                    );
+                                  }
+                                  return null;
+                                })}
+
+                                <PaginationItem>
+                                  <PaginationNext
+                                    href="#"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+                                    }}
+                                    className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
+                                  />
+                                </PaginationItem>
+                              </PaginationContent>
+                            </Pagination>
+                          </div>
+                        )}
+
+                      <div className="flex items-center justify-between text-xs text-muted-foreground pt-3 mt-3 border-t border-border/50">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-3.5 w-3.5" />
+                          {reports?.generatedAt && (
+                            <span>Última actualización: {new Date(reports.generatedAt).toLocaleString('es-ES')}</span>
+                          )}
+                        </div>
+                        <span>
+                          Mostrando {historyList.length === 0 ? 0 : ((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, historyList.length)} de {historyList.length}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </div>
+
+          {/* Estado del análisis debajo para no afectar alturas emparejadas */}
+          {currentJob && (
+            <div className="animate-in fade-in-0 slide-in-from-top-2 duration-200">
+              <Card className="border-border/50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Estado del Análisis</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <JobStatusCompact job={currentJob} />
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </div>
       </main>
     </div>

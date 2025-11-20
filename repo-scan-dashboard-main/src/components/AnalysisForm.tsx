@@ -7,9 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger, DialogClose } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ChevronDown, Play, Search, Loader2 } from 'lucide-react';
+import { ChevronDown, Play, Search, Loader2 } from '@/icons';
 import { AnalysisOptions } from '@/types';
 import { API_URL } from '@/lib/config-client';
 
@@ -110,15 +110,15 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4 flex flex-col h-full">
+      <div className="space-y-4">
         <div>
-          <Label htmlFor="mode" className="text-sm font-medium mb-2 block">Modo de análisis</Label>
+          <Label htmlFor="mode" className="text-sm font-medium mb-1.5 block">Modo de análisis</Label>
           <Select value={mode} onValueChange={(v) => {
             setMode(v as any);
             setSelectedBranches([]);
           }}>
-            <SelectTrigger id="mode" className="bg-card/50 border-border/50 h-11">
+            <SelectTrigger id="mode" className="h-9 border-border/50">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -130,7 +130,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         </div>
 
         {mode === 'specific' && (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <Label className="text-sm font-medium">Seleccionar ramas</Label>
               <Button
@@ -138,21 +138,21 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                 variant="ghost"
                 size="sm"
                 onClick={handleSelectAll}
-                className="h-7 text-xs hover:bg-card"
+                className="h-7 text-xs"
               >
                 {selectedBranches.length === filteredBranches.length ? 'Deseleccionar todas' : 'Seleccionar todas'}
               </Button>
             </div>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
                 placeholder="Buscar ramas..."
                 value={branchSearch}
                 onChange={(e) => setBranchSearch(e.target.value)}
-                className="pl-10 bg-card/30 border-border/50"
+                className="pl-9 h-9 border-border/50"
               />
             </div>
-            <ScrollArea className="h-48 rounded-lg border border-border/50 bg-card/30">
+            <ScrollArea className="h-40 rounded-md border border-border/50">
               <div className="p-2 space-y-1">
                 {branchesLoading ? (
                   <div className="flex items-center justify-center py-8">
@@ -164,7 +164,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                   </p>
                 ) : (
                   filteredBranches.map((branch) => (
-                    <div key={branch.name} className="flex items-center space-x-3 p-2.5 rounded-lg hover:bg-card/50 transition-colors group">
+                    <div key={branch.name} className="flex items-center space-x-2.5 p-2 rounded-md hover:bg-muted/30 transition-colors group">
                       <Checkbox
                         id={`branch-${branch.name}`}
                         checked={selectedBranches.includes(branch.name)}
@@ -175,7 +175,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                         htmlFor={`branch-${branch.name}`}
                         className="flex-1 cursor-pointer text-sm font-normal group-hover:text-foreground transition-colors"
                       >
-                        <span className="font-mono">{branch.name}</span>
+                        <span className="font-mono text-xs">{branch.name}</span>
                         {branch.default && (
                           <span className="ml-2 text-xs text-primary/70">(default)</span>
                         )}
@@ -195,12 +195,13 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
 
         {mode === 'branches' && (
           <div>
-            <Label htmlFor="branchFilter">Filtro de ramas (regex opcional)</Label>
+            <Label htmlFor="branchFilter" className="text-sm font-medium mb-1.5 block">Filtro de ramas (regex opcional)</Label>
             <Input
               id="branchFilter"
               value={branchFilter}
               onChange={(e) => setBranchFilter(e.target.value)}
               placeholder="^feature/|^hotfix/"
+              className="h-9 border-border/50"
             />
             <p className="text-xs text-muted-foreground mt-1">
               Deja vacío para analizar todas las ramas
@@ -209,11 +210,11 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         )}
 
         {mode === 'mrs' && (
-          <>
+          <div className="space-y-4">
             <div>
-              <Label htmlFor="mrState">Estado de MRs</Label>
+              <Label htmlFor="mrState" className="text-sm font-medium mb-1.5 block">Estado de MRs</Label>
               <Select value={mrState} onValueChange={(v) => setMrState(v as any)}>
-                <SelectTrigger id="mrState">
+                <SelectTrigger id="mrState" className="h-9 border-border/50">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -224,86 +225,117 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
               </Select>
             </div>
             <div>
-              <Label htmlFor="mrTargetBranch">Rama destino (opcional)</Label>
+              <Label htmlFor="mrTargetBranch" className="text-sm font-medium mb-1.5 block">Rama destino (opcional)</Label>
               <Input
                 id="mrTargetBranch"
                 value={mrTargetBranch}
                 onChange={(e) => setMrTargetBranch(e.target.value)}
                 placeholder="development"
+                className="h-9 border-border/50"
               />
             </div>
             <div>
-              <Label htmlFor="mrLabels">Etiquetas (separadas por coma)</Label>
+              <Label htmlFor="mrLabels" className="text-sm font-medium mb-1.5 block">Etiquetas (separadas por coma)</Label>
               <Input
                 id="mrLabels"
                 value={mrLabels}
                 onChange={(e) => setMrLabels(e.target.value)}
                 placeholder="bug, backend"
+                className="h-9 border-border/50"
               />
             </div>
-          </>
+          </div>
         )}
       </div>
 
-      <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
-        <CollapsibleTrigger asChild>
-          <Button type="button" variant="ghost" className="w-full flex items-center justify-between">
-            Opciones avanzadas
-            <ChevronDown className={`h-4 w-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="space-y-4 pt-4">
-          <div>
-            <Label htmlFor="ignore">Patrones a ignorar</Label>
-            <Textarea
-              id="ignore"
-              value={ignore}
-              onChange={(e) => setIgnore(e.target.value)}
-              placeholder="**/*.test.ts, **/__tests__/**"
-              rows={2}
-            />
-          </div>
-          <div>
-            <Label htmlFor="globs">Globs a analizar</Label>
-            <Textarea
-              id="globs"
-              value={globs}
-              onChange={(e) => setGlobs(e.target.value)}
-              placeholder="src/**/*.{ts,tsx,js,jsx}"
-              rows={2}
-            />
-          </div>
-          <div>
-            <Label htmlFor="depth">Profundidad de clonación</Label>
-            <Input
-              id="depth"
-              type="number"
-              min="1"
-              value={depth}
-              onChange={(e) => setDepth(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="noCleanup"
-              checked={noCleanup}
-              onCheckedChange={(checked) => setNoCleanup(checked === true)}
-            />
-            <Label htmlFor="noCleanup" className="cursor-pointer">
-              No limpiar clones temporales
-            </Label>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      <div className="border-t border-border/50 pt-3">
+        <Dialog open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
+          <DialogTrigger asChild>
+            <Button type="button" variant="ghost" className="w-full justify-between h-9 text-sm">
+              Opciones avanzadas
+              <ChevronDown className={`h-4 w-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Opciones avanzadas</DialogTitle>
+              <DialogDescription>Ajustes opcionales para el análisis</DialogDescription>
+            </DialogHeader>
+            <div className="mt-2 space-y-4 pr-1">
+              <div>
+                <Label htmlFor="ignore" className="text-sm font-medium mb-1.5 block">Patrones a ignorar</Label>
+                <Textarea
+                  id="ignore"
+                  value={ignore}
+                  onChange={(e) => setIgnore(e.target.value)}
+                  placeholder="**/*.test.ts, **/__tests__/**"
+                  rows={3}
+                  className="border-border/50 text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="globs" className="text-sm font-medium mb-1.5 block">Globs a analizar</Label>
+                <Textarea
+                  id="globs"
+                  value={globs}
+                  onChange={(e) => setGlobs(e.target.value)}
+                  placeholder="src/**/*.{ts,tsx,js,jsx}"
+                  rows={3}
+                  className="border-border/50 text-sm"
+                />
+              </div>
+              <div>
+                <Label htmlFor="depth" className="text-sm font-medium mb-1.5 block">Profundidad de clonación</Label>
+                <Input
+                  id="depth"
+                  type="number"
+                  min="1"
+                  value={depth}
+                  onChange={(e) => setDepth(e.target.value)}
+                  className="h-9 border-border/50"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="noCleanup"
+                  checked={noCleanup}
+                  onCheckedChange={(checked) => setNoCleanup(checked === true)}
+                  className="border-border/50"
+                />
+                <Label htmlFor="noCleanup" className="cursor-pointer text-sm">No limpiar clones temporales</Label>
+              </div>
+            </div>
+            <DialogFooter className="mt-4">
+              <DialogClose asChild>
+                <Button type="button">Guardar</Button>
+              </DialogClose>
+              <DialogClose asChild>
+                <Button type="button" variant="outline">Cerrar</Button>
+              </DialogClose>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-      <Button 
-        type="submit" 
-        className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20" 
-        disabled={disabled || loading || (mode === 'specific' && selectedBranches.length === 0)}
-      >
-        <Play className="h-5 w-5 mr-2" />
-        {loading ? 'Iniciando análisis...' : 'Analizar repositorio'}
+      <div className="pt-3 border-t border-border/50 mt-auto">
+        <Button 
+          type="submit" 
+          className="w-full h-10 text-sm font-semibold bg-primary hover:bg-primary/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" 
+          disabled={disabled || loading || (mode === 'specific' && selectedBranches.length === 0)}
+        >
+        {loading ? (
+          <>
+            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+            Iniciando análisis...
+          </>
+        ) : (
+          <>
+            <Play className="h-5 w-5 mr-2" />
+            Analizar repositorio
+          </>
+        )}
       </Button>
+      </div>
     </form>
   );
 }

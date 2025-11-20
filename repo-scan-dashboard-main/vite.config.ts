@@ -8,10 +8,25 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
+  preview: {
+    host: "::",
+    port: 4173,
+  },
   plugins: [react()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  esbuild: {
+    // Quita console.* y debugger en build prod para reducir JS y TBT
+    drop: mode === "production" ? ["console", "debugger"] : [],
+  },
+  build: {
+    sourcemap: false,
+    cssCodeSplit: true,
+    modulePreload: { polyfill: true },
+    reportCompressedSize: true,
+    target: "es2022",
   },
 }));

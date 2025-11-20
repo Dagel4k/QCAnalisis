@@ -12,6 +12,7 @@
     "start": "concurrently \"npm run start:server\" \"npm run start:client\"",
     "start:server": "tsx server/index.ts",
     "start:client": "vite preview",
+    "serve:prod": "npm run build && NODE_ENV=production tsx server/index.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -53,6 +54,7 @@
     "cmdk": "^1.1.1",
     "concurrently": "^9.2.1",
     "cors": "^2.8.5",
+    "compression": "^1.7.4",
     "date-fns": "^3.6.0",
     "embla-carousel-react": "^8.6.0",
     "express": "^5.1.0",

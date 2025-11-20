@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Code2 } from 'lucide-react';
+import { Search, Code2 } from '@/icons';
 import { Input } from '@/components/ui/input';
 import { RepoCard } from '@/components/RepoCard';
 import { RepositoryWithStatus } from '@/types';

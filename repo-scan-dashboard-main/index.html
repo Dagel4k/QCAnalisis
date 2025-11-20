@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0b0f19" />
     <title>Analizador de Repositorios GitLab | ScriptC Code Reviewer</title>
     <meta name="description" content="Dashboard para analizar la calidad del código de repositorios GitLab con ESLint, ts-prune y jscpd" />
     <meta name="author" content="ScriptC" />
@@ -11,6 +13,8 @@
     <meta property="og:description" content="Revisa la calidad del código de tus proyectos GitLab con análisis automático" />
     <meta property="og:type" content="website" />
 
+    <!-- Preconnect dinámico temprano al API para mejorar FCP/LCP en fetch inicial -->
+    <script type="module" src="/src/perf/preconnect.ts"></script>
   </head>
 
   <body>
