@@ -38,6 +38,9 @@ export async function runAnalysis(
     if (options.mrLabels && options.mrLabels.length > 0) {
       args.push('--mr-labels', options.mrLabels.join(','));
     }
+    if (options.onlyChanged) {
+      args.push('--only-changed');
+    }
   } else if (options.mode === 'branches') {
     args.push('--from-gitlab-branches');
     if (options.branchFilter) {
@@ -96,6 +99,14 @@ export async function runAnalysis(
 
     const projectRoot = path.dirname(path.dirname(config.reviewScriptPath));
     
+    const envExtras: Record<string, string | undefined> = {
+      REPORT_STRICT: options.qualityGates?.strict ? '1' : undefined,
+      REPORT_MAX_ERRORS: typeof options.qualityGates?.maxErrors === 'number' ? String(options.qualityGates!.maxErrors) : undefined,
+      REPORT_MAX_WARNINGS: typeof options.qualityGates?.maxWarnings === 'number' ? String(options.qualityGates!.maxWarnings) : undefined,
+      REPORT_MAX_UNUSED_EXPORTS: typeof options.qualityGates?.maxUnusedExports === 'number' ? String(options.qualityGates!.maxUnusedExports) : undefined,
+      REPORT_MAX_DUP_PERCENT: typeof options.qualityGates?.maxDupPercent === 'number' ? String(options.qualityGates!.maxDupPercent) : undefined,
+    };
+
     const child = spawn('node', args, {
       env: {
         ...process.env,
@@ -105,6 +116,7 @@ export async function runAnalysis(
         GITLAB_TOKEN: config.gitlabToken || undefined,
         GITLAB_PRIVATE_TOKEN: config.gitlabToken || undefined,
         REPORT_USE_INTERNAL_ESLINT_CONFIG: config.forceEslintConfig ? '1' : undefined,
+        ...envExtras,
       },
       cwd: projectRoot,
     });

@@ -39,6 +39,12 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
   const [globs, setGlobs] = useState('');
   const [depth, setDepth] = useState('1');
   const [noCleanup, setNoCleanup] = useState(false);
+  const [onlyChanged, setOnlyChanged] = useState(false);
+  const [strict, setStrict] = useState(false);
+  const [maxErrors, setMaxErrors] = useState<string>('');
+  const [maxWarnings, setMaxWarnings] = useState<string>('');
+  const [maxUnused, setMaxUnused] = useState<string>('');
+  const [maxDupPct, setMaxDupPct] = useState<string>('');
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -95,11 +101,21 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         mrState,
         ...(mrTargetBranch && { mrTargetBranch }),
         ...(mrLabels && { mrLabels: mrLabels.split(',').map(l => l.trim()) }),
+        ...(onlyChanged ? { onlyChanged: true } : {}),
       }),
       ...(ignore && { ignore: ignore.split(',').map(i => i.trim()) }),
       ...(globs && { globs: globs.split(',').map(g => g.trim()) }),
       depth: parseInt(depth) || 1,
       noCleanup,
+      ...(strict || maxErrors || maxWarnings || maxUnused || maxDupPct ? {
+        qualityGates: {
+          ...(strict ? { strict: true } : {}),
+          ...(maxErrors ? { maxErrors: parseInt(maxErrors) } : {}),
+          ...(maxWarnings ? { maxWarnings: parseInt(maxWarnings) } : {}),
+          ...(maxUnused ? { maxUnusedExports: parseInt(maxUnused) } : {}),
+          ...(maxDupPct ? { maxDupPercent: parseFloat(maxDupPct) } : {}),
+        }
+      } : {}),
     };
 
     try {
@@ -262,6 +278,17 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
               <DialogDescription>Ajustes opcionales para el análisis</DialogDescription>
             </DialogHeader>
             <div className="mt-2 space-y-4 pr-1">
+              {mode === 'mrs' && (
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="onlyChanged"
+                    checked={onlyChanged}
+                    onCheckedChange={(v) => setOnlyChanged(v === true)}
+                    className="border-border/50"
+                  />
+                  <Label htmlFor="onlyChanged" className="cursor-pointer text-sm">Analizar solo archivos cambiados (MRs)</Label>
+                </div>
+              )}
               <div>
                 <Label htmlFor="ignore" className="text-sm font-medium mb-1.5 block">Patrones a ignorar</Label>
                 <Textarea
@@ -303,6 +330,36 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                   className="border-border/50"
                 />
                 <Label htmlFor="noCleanup" className="cursor-pointer text-sm">No limpiar clones temporales</Label>
+              </div>
+              <div className="pt-2 border-t border-border/50">
+                <Label className="text-sm font-medium mb-2 block">Quality Gates (opcional)</Label>
+                <div className="flex items-center gap-2 mb-2">
+                  <Checkbox
+                    id="strict"
+                    checked={strict}
+                    onCheckedChange={(v) => setStrict(v === true)}
+                    className="border-border/50"
+                  />
+                  <Label htmlFor="strict" className="cursor-pointer text-sm">Strict mode (fallar si hay errores ESLint)</Label>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="maxErrors" className="text-xs font-medium mb-1 block">Máx. errores</Label>
+                    <Input id="maxErrors" type="number" min="0" value={maxErrors} onChange={(e) => setMaxErrors(e.target.value)} className="h-9 border-border/50" />
+                  </div>
+                  <div>
+                    <Label htmlFor="maxWarnings" className="text-xs font-medium mb-1 block">Máx. warnings</Label>
+                    <Input id="maxWarnings" type="number" min="0" value={maxWarnings} onChange={(e) => setMaxWarnings(e.target.value)} className="h-9 border-border/50" />
+                  </div>
+                  <div>
+                    <Label htmlFor="maxUnused" className="text-xs font-medium mb-1 block">Máx. exports sin uso</Label>
+                    <Input id="maxUnused" type="number" min="0" value={maxUnused} onChange={(e) => setMaxUnused(e.target.value)} className="h-9 border-border/50" />
+                  </div>
+                  <div>
+                    <Label htmlFor="maxDupPct" className="text-xs font-medium mb-1 block">Máx. % duplicación</Label>
+                    <Input id="maxDupPct" type="number" min="0" step="0.01" value={maxDupPct} onChange={(e) => setMaxDupPct(e.target.value)} className="h-9 border-border/50" />
+                  </div>
+                </div>
               </div>
             </div>
             <DialogFooter className="mt-4">

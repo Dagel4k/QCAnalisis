@@ -4,6 +4,7 @@ Objetivo: herramienta CLI para revisar ramas de GitLab (o cualquier repo Git), g
 - CLI `review-gitlab-branches` para clonar ramas, correr análisis y consolidar reportes.
 - Generador `generate-eslint-config` para crear `.eslintrc.js` bajo demanda.
 - Paquete meta `@scriptc/dev-tools` para instalar múltiples devDependencies con una sola.
+  - Incluye plugins: @typescript-eslint, import, unicorn, sonarjs y security.
 
 Requisitos
 - Node 18+
@@ -16,6 +17,7 @@ Instalación local
    npm run dev-tools:pack
 
 2) En el repo que audites puedes instalar el tarball resultante (file:...) como devDependency para obtener eslint, plugins, typescript, ts-prune, jscpd, etc.
+   - Nota: Si se actualizan las dependencias del meta paquete (por ejemplo, se añadió `eslint-plugin-security`), vuelve a ejecutar `npm run dev-tools:pack` para generar un tarball actualizado.
 
 Uso rápido
 
@@ -30,6 +32,22 @@ Generar reporte HTML (en CWD del proyecto auditado):
   - Reglas más frecuentes
   - ts-prune: exports no usados
   - jscpd: duplicación de código
+  - Seguridad: reglas `eslint-plugin-security` y escaneo de secretos (AWS keys, GitHub tokens, JWTs, etc.)
+
+Flags útiles del generador (`generate-html-lint-report.js`):
+- `--ignore <p1,p2>`: patrones a ignorar (globs simples). Se aplican al filtrado de resultados ESLint y al arbol de archivos.
+- `--globs <g1,g2>`: globs o lista de archivos a analizar (por defecto `src/**/*.ts`).
+- `--no-ts-prune` / `--no-jscpd`: desactiva herramientas adicionales.
+- `--no-secret-scan`: desactiva el escaneo heurístico de secretos/credenciales.
+- `--max-issues-per-file <n>`: limita issues mostrados por archivo (default 100).
+  - Alternativas por entorno: `REPORT_USE_INTERNAL_ESLINT_CONFIG=1`, `REPORT_NO_TSPRUNE=1`, `REPORT_NO_JSCPD=1`, `REPORT_MAX_ISSUES_PER_FILE=50`.
+ - Quality gates opcionales:
+   - `--strict` (falla si hay errores ESLint)
+   - `--max-errors <n>` / `--max-warnings <n>`
+   - `--max-unused-exports <n>` (ts-prune)
+   - `--max-dup-percent <n>` (jscpd %)
+   - `--max-secrets <n>` (secretos detectados por escaneo)
+   - Por entorno: `REPORT_STRICT=1`, `REPORT_MAX_ERRORS`, `REPORT_MAX_WARNINGS`, `REPORT_MAX_UNUSED_EXPORTS`, `REPORT_MAX_DUP_PERCENT`, `REPORT_MAX_SECRETS`, `REPORT_NO_SECRET_SCAN=1`.
 
 Revisar varias ramas desde un repo Git (clona, corre, copia reportes y limpia):
 - node bin/review-gitlab-branches.js \
@@ -78,6 +96,7 @@ Parámetros CLI:
 - --install-dev <spec>      Especificación npm del meta paquete (file:..., git:..., @scriptc/dev-tools@ver)
 - --no-cleanup              Conserva el clone tras el análisis
  - --depth <n>               Depth del shallow clone (default 1)
+ - --only-changed           (MR) Analiza sólo archivos cambiados vs rama destino
  - --force-eslint-config    Ignora la config del proyecto y usa una mínima interna (útil si falta "react-app" u otros presets)
  - --env-file <path>        Cargar variables de entorno desde un archivo .env antes de ejecutar (alternativa: variable env DOTENV_PATH)
 
@@ -88,6 +107,8 @@ Notas importantes
   - Alternativamente pasa `--globs "src/**/*.{ts,tsx,js,jsx}"` al comando para personalizar.
 - Si usas `--install-dev` con un tarball local, pásalo en una sola línea y preferiblemente con ruta absoluta: `--install-dev "file:$(pwd)/packages/dev-tools/scriptc-dev-tools-0.1.0.tgz"`.
   - También puedes definir `INSTALL_DEV_SPEC` en el entorno para no repetir el flag.
-  - Para ejecutar sin instalar dependencias en el clone, define `ANALYZE_OFFLINE_MODE=true`.
+ - Para ejecutar sin instalar dependencias en el clone, define `ANALYZE_OFFLINE_MODE=true`.
+ - Para analizar sólo archivos cambiados en MRs, añade `--only-changed` o `ANALYZE_ONLY_CHANGED=true`.
  - Si la config ESLint del proyecto falla (por ejemplo, `extends: 'react-app'` y no están instaladas sus deps), el generador ahora hace fallback automático a una configuración interna mínima. También puedes forzarlo con `--force-eslint-config`.
  - La instalación del meta‑paquete reintenta con `--legacy-peer-deps` si hay conflictos de peer deps. Puedes pasar flags extra a npm via `NPM_INSTALL_FLAGS`.
+  - Puedes elegir el gestor de paquetes con `PACKAGE_MANAGER=npm|pnpm|yarn`.

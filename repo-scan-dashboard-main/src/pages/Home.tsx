@@ -124,9 +124,9 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="relative container mx-auto px-6 py-10">
-        <div className="mb-8 flex items-center justify-between gap-4">
-          <div className="relative max-w-lg w-full">
+      <main className="relative container mx-auto px-4 sm:px-6 py-6 sm:py-10">
+        <div className="mb-6 sm:mb-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="relative w-full sm:max-w-lg">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
             <Input
               type="text"
@@ -138,7 +138,7 @@ export default function Home() {
           </div>
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-              <Button className="h-12 px-5">
+              <Button className="h-11 sm:h-12 px-5 w-full sm:w-auto">
                 Añadir repo
               </Button>
             </DialogTrigger>

@@ -16,7 +16,7 @@
   },
   "devDependencies": {
     "@scriptc/dev-tools": "file:packages/dev-tools/scriptc-dev-tools-0.1.0.tgz",
-    "scriptc-code-reviewer": "file:"
+    
   },
   "keywords": [
     "eslint",

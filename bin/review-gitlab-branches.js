@@ -81,6 +81,7 @@ function parseArgs() {
     fallbackDefault: true,
     reportScript: process.env.REPORT_SCRIPT || undefined,
     forceEslintConfig: false,
+    onlyChanged: process.env.ANALYZE_ONLY_CHANGED === 'true',
     help: false,
   };
 
@@ -113,6 +114,7 @@ function parseArgs() {
     else if (a === '--no-fallback-default') opts.fallbackDefault = false;
     else if (a === '--report-script') opts.reportScript = args[++i];
     else if (a === '--force-eslint-config') opts.forceEslintConfig = true;
+    else if (a === '--only-changed') opts.onlyChanged = true;
   }
 
   if (!opts.repo) {
@@ -299,18 +301,13 @@ async function main() {
   let history = [];
 
   // Resolver ruta del script de reporte
-  let reportScript = opts.reportScript;
-  const absolutePreferred = '/Users/daniel/Downloads/scriptCCode/generate-html-lint-report.js';
+  let reportScript = opts.reportScript || process.env.REPORT_SCRIPT_PATH;
   if (!reportScript) {
-    if (fs.existsSync(absolutePreferred)) {
-      reportScript = absolutePreferred;
-    } else {
-      const localCandidate = path.join(rootDir, 'generate-html-lint-report.js');
-      if (fs.existsSync(localCandidate)) reportScript = localCandidate;
-    }
+    const localCandidate = path.join(rootDir, 'generate-html-lint-report.js');
+    if (fs.existsSync(localCandidate)) reportScript = localCandidate;
   }
   if (!reportScript || !fs.existsSync(reportScript)) {
-    console.error('No se encontró el script de reporte. Pasa --report-script "/ruta/a/generate-html-lint-report.js"');
+    console.error('No se encontró el script de reporte. Pasa --report-script "/ruta/a/generate-html-lint-report.js" o define REPORT_SCRIPT_PATH.');
     process.exit(1);
   }
   console.log(`Usando script de reporte: ${reportScript}`);
@@ -417,17 +414,35 @@ async function main() {
           if (spec) {
             console.log(`Instalando dev tools: ${spec}`);
             const { spawnSync } = require('child_process');
+            const pkgMgr = (process.env.PACKAGE_MANAGER || process.env.PKG_MGR || 'npm').trim();
             const extraFlags = (process.env.NPM_INSTALL_FLAGS || '').trim();
-            let npmArgs = ['i', '-D', '--prefer-offline', '--no-audit', '--no-fund'];
-            if (extraFlags) npmArgs.push(...extraFlags.split(/\s+/));
-            npmArgs.push(spec);
-            let npmRes = spawnSync('npm', npmArgs, { cwd: cloneDir, stdio: 'inherit' });
-            if (npmRes.status !== 0) {
-              // Reintento con --legacy-peer-deps para evitar conflictos de peers
-              console.warn('npm install falló; reintentando con --legacy-peer-deps');
-              const retryArgs = npmArgs.includes('--legacy-peer-deps') ? npmArgs : [...npmArgs.slice(0, -1), '--legacy-peer-deps', spec];
-              npmRes = spawnSync('npm', retryArgs, { cwd: cloneDir, stdio: 'inherit' });
-              if (npmRes.status !== 0) throw new Error('npm install dev tools falló');
+
+            let cmd = pkgMgr;
+            let args;
+            if (pkgMgr === 'pnpm') {
+              args = ['add', '-D'];
+              if (extraFlags) args.push(...extraFlags.split(/\s+/));
+              args.push(spec);
+              const res = spawnSync(cmd, args, { cwd: cloneDir, stdio: 'inherit' });
+              if (res.status !== 0) throw new Error('pnpm add dev tools falló');
+            } else if (pkgMgr === 'yarn') {
+              args = ['add', '--dev'];
+              if (extraFlags) args.push(...extraFlags.split(/\s+/));
+              args.push(spec);
+              const res = spawnSync(cmd, args, { cwd: cloneDir, stdio: 'inherit' });
+              if (res.status !== 0) throw new Error('yarn add dev tools falló');
+            } else {
+              // npm por defecto
+              args = ['i', '-D', '--prefer-offline', '--no-audit', '--no-fund'];
+              if (extraFlags) args.push(...extraFlags.split(/\s+/));
+              args.push(spec);
+              let res = spawnSync('npm', args, { cwd: cloneDir, stdio: 'inherit' });
+              if (res.status !== 0) {
+                console.warn('npm install falló; reintentando con --legacy-peer-deps');
+                const retryArgs = args.includes('--legacy-peer-deps') ? args : [...args.slice(0, -1), '--legacy-peer-deps', spec];
+                res = spawnSync('npm', retryArgs, { cwd: cloneDir, stdio: 'inherit' });
+                if (res.status !== 0) throw new Error('npm install dev tools falló');
+              }
             }
           }
         } catch (err) {
@@ -458,16 +473,47 @@ async function main() {
         console.log('.eslintrc.js ya existe; se usará tal cual.');
       }
 
+      // Opcional: si es MR y se pidió sólo archivos cambiados, calcular lista
+      let overrideGlobs = undefined;
+      if (opts.onlyChanged && task.type === 'mr' && task.targetBranch) {
+        try {
+          console.log(`Calculando archivos cambiados vs ${task.targetBranch}...`);
+          run(`git fetch --quiet origin ${task.targetBranch} --depth 1`, { cwd: cloneDir });
+          const { spawnSync } = require('child_process');
+          const diffRes = spawnSync('git', ['diff', '--name-only', `origin/${task.targetBranch}...HEAD`], { cwd: cloneDir, encoding: 'utf-8' });
+          if (diffRes.status === 0) {
+            const raw = (diffRes.stdout || '');
+            const files = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+            const filtered = files.filter(f => /\.(ts|tsx|js|jsx)$/i.test(f));
+            if (filtered.length > 0) {
+              overrideGlobs = filtered.join(',');
+              console.log(`Analizando sólo ${filtered.length} archivo(s) cambiado(s).`);
+            } else {
+              console.log('No se detectaron archivos de código cambiados; se analizará con globs por defecto.');
+            }
+          } else {
+            console.warn('git diff no pudo calcular cambios; se usarán globs por defecto.');
+          }
+        } catch (e) {
+          console.warn('No se pudo calcular archivos cambiados:', e?.message || e);
+        }
+      }
+
       // Ejecutar el generador de reporte HTML, asegurando que pueda resolver dependencias del clone
       console.log('Ejecutando reporte ESLint + extras...');
       const nodePath = extraPaths.join(path.delimiter);
       const ignoreArgs = opts.ignore.length ? ['--ignore', opts.ignore.join(',')] : [];
-      const globArgs = opts.globs ? ['--globs', opts.globs] : [];
-      runNode(reportScript, {
-        cwd: cloneDir,
-        env: { NODE_PATH: nodePath, REPORT_USE_INTERNAL_ESLINT_CONFIG: opts.forceEslintConfig ? '1' : '' },
-        args: [...ignoreArgs, ...globArgs],
-      });
+      const globsValue = overrideGlobs || opts.globs;
+      const globArgs = globsValue ? ['--globs', globsValue] : [];
+      try {
+        runNode(reportScript, {
+          cwd: cloneDir,
+          env: { NODE_PATH: nodePath, REPORT_USE_INTERNAL_ESLINT_CONFIG: opts.forceEslintConfig ? '1' : '' },
+          args: [...ignoreArgs, ...globArgs],
+        });
+      } catch (e) {
+        console.warn('Generación de reporte finalizó con código distinto de 0 (continuando):', e?.message || e);
+      }
 
       // Copiar reporte a carpeta central
       const sourceReport = path.join(cloneDir, 'reports', 'lint-report.html');

@@ -12,11 +12,10 @@ function runLocalOrInternal() {
   } else {
     // Fallback: generador mínimo embebido
     const { writeFileSync } = require('fs');
-    const out = `module.exports = {\n  parser: '@typescript-eslint/parser',\n  parserOptions: { project: 'tsconfig.json', sourceType: 'module' },\n  plugins: ['@typescript-eslint/eslint-plugin','sonarjs','unicorn','import'],\n  extends: [\n    'plugin:@typescript-eslint/recommended',\n    'plugin:@typescript-eslint/recommended-requiring-type-checking',\n    'plugin:sonarjs/recommended',\n    'plugin:unicorn/recommended',\n    'plugin:import/recommended',\n    'plugin:import/typescript'\n  ],\n  rules: { 'complexity': ['error', 10] }\n};\n`;
+    const out = `module.exports = {\n  parser: '@typescript-eslint/parser',\n  parserOptions: { project: 'tsconfig.json', sourceType: 'module' },\n  plugins: ['@typescript-eslint/eslint-plugin','sonarjs','unicorn','import','security'],\n  extends: [\n    'plugin:@typescript-eslint/recommended',\n    'plugin:@typescript-eslint/recommended-requiring-type-checking',\n    'plugin:sonarjs/recommended',\n    'plugin:unicorn/recommended',\n    'plugin:import/recommended',\n    'plugin:import/typescript',\n    'plugin:security/recommended'\n  ],\n  rules: { 'complexity': ['error', 10] }\n};\n`;
     writeFileSync(path.join(cwd, '.eslintrc.js'), out, 'utf8');
     console.log('Generated minimal .eslintrc.js');
   }
 }
 
 runLocalOrInternal();
-

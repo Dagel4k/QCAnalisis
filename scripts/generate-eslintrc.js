@@ -20,6 +20,7 @@ function parseArgs() {
     withSonar: true,
     withUnicorn: true,
     withImport: true,
+    withSecurity: true,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -32,6 +33,8 @@ function parseArgs() {
     else if (a === '--no-unicorn') opts.withUnicorn = false;
     else if (a === '--with-import') opts.withImport = true;
     else if (a === '--no-import') opts.withImport = false;
+    else if (a === '--with-security') opts.withSecurity = true;
+    else if (a === '--no-security') opts.withSecurity = false;
   }
   return opts;
 }
@@ -49,6 +52,7 @@ function generateConfig(opts) {
   if (opts.withSonar) plugins.push("'sonarjs'");
   if (opts.withUnicorn) plugins.push("'unicorn'");
   if (opts.withImport) plugins.push("'import'");
+  if (opts.withSecurity) plugins.push("'security'");
 
   const extendsArr = [
     "'plugin:@typescript-eslint/recommended'",
@@ -62,6 +66,7 @@ function generateConfig(opts) {
     extendsArr.push("'plugin:import/recommended'");
     extendsArr.push("'plugin:import/typescript'");
   }
+  if (opts.withSecurity) extendsArr.push("'plugin:security/recommended'");
 
   const rules = [];
   if (opts.withSonar) {

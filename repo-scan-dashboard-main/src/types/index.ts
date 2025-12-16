@@ -29,6 +29,14 @@ export interface AnalysisOptions {
   globs?: string[];
   depth?: number;
   noCleanup?: boolean;
+  onlyChanged?: boolean; // analyze only changed files in MRs
+  qualityGates?: {
+    strict?: boolean;
+    maxErrors?: number;
+    maxWarnings?: number;
+    maxUnusedExports?: number;
+    maxDupPercent?: number;
+  };
 }
 
 export interface ReportSummary {
@@ -53,6 +61,7 @@ export interface AnalysisMetrics {
   warningCount?: number;
   tsPrune?: { count: number };
   jscpd?: { count: number; percentage?: number };
+  qualityGate?: { passed: boolean; failures?: string[] };
 }
 
 export interface HistoryEntry {

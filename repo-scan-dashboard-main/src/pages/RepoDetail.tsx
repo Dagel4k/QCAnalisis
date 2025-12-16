@@ -297,17 +297,17 @@ export default function RepoDetail() {
         </div>
       </header>
 
-      <main className="container mx-auto px-6 py-6">
+      <main className="container mx-auto px-4 sm:px-6 py-4 sm:py-6">
         <div className="space-y-6">
           {/* Fila principal: Configuración + Resultados (igual altura) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-          <div className="lg:col-span-1">
-            <Card className="border-border/50 h-[820px] flex flex-col overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch min-h-0">
+          <div className="lg:col-span-1 min-h-0">
+            <Card className="border-border/50 h-auto lg:h-[85vh] flex flex-col overflow-hidden">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg">Configuración</CardTitle>
                 <CardDescription className="text-xs">Configura y ejecuta un análisis</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-5 flex-1 flex flex-col">
+              <CardContent className="space-y-5 flex-1 flex flex-col min-h-0 lg:overflow-auto">
                 <AnalysisForm
                   repoSlug={slug!}
                   repoUrl={repo.repoUrl}
@@ -318,13 +318,13 @@ export default function RepoDetail() {
             </Card>
             </div>
 
-            <div className="lg:col-span-2">
-              <Card className="border-border/50 h-[820px] flex flex-col overflow-hidden">
+            <div className="lg:col-span-2 min-h-0">
+              <Card className="border-border/50 h-auto lg:h-[85vh] flex flex-col overflow-hidden">
                 <CardHeader className="pb-4">
                   <CardTitle className="text-lg">Resultados del Repositorio</CardTitle>
                   <CardDescription className="text-xs">KPIs y análisis ejecutados</CardDescription>
                 </CardHeader>
-                <CardContent className="flex-1 flex flex-col min-h-0">
+                <CardContent className="flex-1 flex flex-col min-h-0 lg:overflow-hidden">
                   {/* KPIs compactos */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
                     <div className="rounded-md border border-border/50 p-3 bg-card/30">
@@ -367,19 +367,25 @@ export default function RepoDetail() {
                     </Alert>
                   ) : (
                     <>
-                        <div className="space-y-3 flex-1 pr-1">
+                        <div className="space-y-3 flex-1 pr-1 min-h-0 lg:overflow-auto">
                           {paginatedHistory.map((run) => {
                             const issues = run.metrics?.totalIssues ?? 0;
                             const errors = run.metrics?.errorCount ?? 0;
                             const warnings = run.metrics?.warningCount ?? 0;
                             const badgeVariant = getIssueBadgeVariant(issues, errors, warnings);
+                            const gate = run.metrics?.qualityGate;
+                            const idx = historyList.findIndex(r => r.id === run.id);
+                            const prevRun = idx >= 0 ? historyList[idx + 1] : undefined;
+                            const prevIssues = prevRun?.metrics?.totalIssues ?? undefined;
+                            const delta = typeof prevIssues === 'number' ? (issues - prevIssues) : undefined;
+                            const secCount = run.metrics?.security?.count ?? 0;
                             
                             return (
                               <div
                                 key={run.id}
-                                className="group flex items-center justify-between p-4 border border-border/50 rounded-lg bg-card/30 hover:bg-card/50 hover:border-primary/30 transition-all duration-200"
+                                className="group flex flex-col sm:flex-row items-stretch sm:items-center justify-start sm:justify-between gap-3 p-4 border border-border/50 rounded-lg bg-card/30 hover:bg-card/50 hover:border-primary/30 transition-all duration-200"
                               >
-                            <div className="flex items-center gap-4 flex-1">
+                            <div className="flex items-start sm:items-center gap-3 sm:gap-4 flex-1 min-w-0">
                               <div className="p-2 rounded-lg bg-primary/10 group-hover:bg-primary/20 transition-colors">
                                 <GitBranch className="h-4 w-4 text-primary" />
                               </div>
@@ -392,8 +398,17 @@ export default function RepoDetail() {
                                   >
                                     {issues === 0 ? 'Sin issues' : `${issues} issue${issues !== 1 ? 's' : ''}`}
                                   </Badge>
+                                  {gate && (
+                                    <Badge
+                                      variant={gate.passed ? 'success' : 'destructive'}
+                                      className="text-xs"
+                                      title={gate.passed ? 'Quality gate passed' : (gate.failures?.join('; ') || 'Quality gate failed')}
+                                    >
+                                      {gate.passed ? 'Gate: OK' : 'Gate: FAIL'}
+                                    </Badge>
+                                  )}
                                 </div>
-                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-muted-foreground">
                                   <span>{new Date(run.generatedAt).toLocaleString('es-ES', { 
                                     day: '2-digit', 
                                     month: 'short',
@@ -408,6 +423,14 @@ export default function RepoDetail() {
                                       {warnings > 0 && (
                                         <span className="text-warning">W: {warnings}</span>
                                       )}
+                                      {secCount > 0 && (
+                                        <span className="text-accent-foreground">S: {secCount}</span>
+                                      )}
+                                      {typeof delta === 'number' && (
+                                        <span className={cn(delta > 0 && 'text-destructive', delta < 0 && 'text-green-500')}>
+                                          Δ: {delta > 0 ? `+${delta}` : delta}
+                                        </span>
+                                      )}
                                     </>
                                   )}
                                 </div>
@@ -417,9 +440,9 @@ export default function RepoDetail() {
                               href={`${API_URL}/api/repos/${slug}/reports/${encodeURIComponent(run.id)}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="ml-4"
+                              className="sm:ml-4 w-full sm:w-auto"
                             >
-                              <Button size="sm" variant="outline" className="gap-2">
+                              <Button size="sm" variant="outline" className="gap-2 w-full sm:w-auto">
                                 <FileText className="h-4 w-4" />
                                 Ver
                               </Button>
@@ -431,7 +454,7 @@ export default function RepoDetail() {
 
                         {totalPages > 1 && (
                           <div className="pt-3 border-t border-border/50">
-                            <div className="flex items-center justify-between w-full">
+                            <div className="flex items-center justify-between w-full flex-wrap gap-2">
                               <PaginationPrevious
                                 href="#"
                                 onClick={(e) => {
@@ -441,7 +464,7 @@ export default function RepoDetail() {
                                 className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
                               />
 
-                              <div className="inline-flex items-center gap-1">
+                              <div className="inline-flex items-center gap-1 overflow-x-auto max-w-full">
                                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
                                   if (
                                     page === 1 ||

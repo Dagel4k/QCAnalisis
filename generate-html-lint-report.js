@@ -1,4 +1,5 @@
 const { ESLint } = require('eslint');
+const fg = require('fast-glob');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -9,8 +10,20 @@ let lintGlobs;
 let forceInternalEslint = process.env.REPORT_USE_INTERNAL_ESLINT_CONFIG === '1';
 let noTsPrune = process.env.REPORT_NO_TSPRUNE === '1';
 let noJscpd = process.env.REPORT_NO_JSCPD === '1';
+let noSecretScan = process.env.REPORT_NO_SECRET_SCAN === '1';
 let maxIssuesPerFile = parseInt(process.env.REPORT_MAX_ISSUES_PER_FILE || '', 10);
 if (!Number.isFinite(maxIssuesPerFile) || maxIssuesPerFile <= 0) maxIssuesPerFile = 100;
+let strictMode = process.env.REPORT_STRICT === '1';
+let maxErrorsGate = parseInt(process.env.REPORT_MAX_ERRORS || '', 10);
+let maxWarningsGate = parseInt(process.env.REPORT_MAX_WARNINGS || '', 10);
+let maxUnusedExportsGate = parseInt(process.env.REPORT_MAX_UNUSED_EXPORTS || '', 10);
+let maxDupPercentGate = parseFloat(process.env.REPORT_MAX_DUP_PERCENT || '');
+let maxSecretsGate = parseInt(process.env.REPORT_MAX_SECRETS || '', 10);
+if (!Number.isFinite(maxErrorsGate)) maxErrorsGate = undefined;
+if (!Number.isFinite(maxWarningsGate)) maxWarningsGate = undefined;
+if (!Number.isFinite(maxUnusedExportsGate)) maxUnusedExportsGate = undefined;
+if (!Number.isFinite(maxDupPercentGate)) maxDupPercentGate = undefined;
+if (!Number.isFinite(maxSecretsGate)) maxSecretsGate = undefined;
 
 function canResolve(mod) {
   try {
@@ -72,6 +85,7 @@ function parseExtraFlags() {
     const a = args[i];
     if (a === '--no-ts-prune') noTsPrune = true;
     else if (a === '--no-jscpd') noJscpd = true;
+    else if (a === '--no-secret-scan') noSecretScan = true;
     else if (a === '--max-issues-per-file' && i + 1 < args.length) {
       const n = parseInt(args[i + 1], 10);
       if (Number.isFinite(n) && n > 0) maxIssuesPerFile = n;
@@ -79,6 +93,28 @@ function parseExtraFlags() {
     } else if (a.startsWith('--max-issues-per-file=')) {
       const n = parseInt(a.slice('--max-issues-per-file='.length), 10);
       if (Number.isFinite(n) && n > 0) maxIssuesPerFile = n;
+    } else if (a === '--strict') {
+      strictMode = true;
+    } else if (a === '--max-errors' && i + 1 < args.length) {
+      const n = parseInt(args[i + 1], 10); if (Number.isFinite(n)) maxErrorsGate = n; i++;
+    } else if (a.startsWith('--max-errors=')) {
+      const n = parseInt(a.split('=')[1], 10); if (Number.isFinite(n)) maxErrorsGate = n;
+    } else if (a === '--max-warnings' && i + 1 < args.length) {
+      const n = parseInt(args[i + 1], 10); if (Number.isFinite(n)) maxWarningsGate = n; i++;
+    } else if (a.startsWith('--max-warnings=')) {
+      const n = parseInt(a.split('=')[1], 10); if (Number.isFinite(n)) maxWarningsGate = n;
+    } else if (a === '--max-unused-exports' && i + 1 < args.length) {
+      const n = parseInt(args[i + 1], 10); if (Number.isFinite(n)) maxUnusedExportsGate = n; i++;
+    } else if (a.startsWith('--max-unused-exports=')) {
+      const n = parseInt(a.split('=')[1], 10); if (Number.isFinite(n)) maxUnusedExportsGate = n;
+    } else if (a === '--max-dup-percent' && i + 1 < args.length) {
+      const n = parseFloat(args[i + 1]); if (Number.isFinite(n)) maxDupPercentGate = n; i++;
+    } else if (a.startsWith('--max-dup-percent=')) {
+      const n = parseFloat(a.split('=')[1]); if (Number.isFinite(n)) maxDupPercentGate = n;
+    } else if (a === '--max-secrets' && i + 1 < args.length) {
+      const n = parseInt(args[i + 1], 10); if (Number.isFinite(n)) maxSecretsGate = n; i++;
+    } else if (a.startsWith('--max-secrets=')) {
+      const n = parseInt(a.split('=')[1], 10); if (Number.isFinite(n)) maxSecretsGate = n;
     }
   }
 }
@@ -176,6 +212,33 @@ function escapeHtml(text) {
   return text.replace(/[&<>"']/g, (m) => map[m]);
 }
 
+function docUrlForRule(ruleId) {
+  if (!ruleId) return '';
+  try {
+    if (ruleId.includes('/')) {
+      const [plugin, rule] = ruleId.split('/', 2);
+      if (plugin === '@typescript-eslint') {
+        return `https://typescript-eslint.io/rules/${rule}/`;
+      }
+      if (plugin === 'import') {
+        return `https://github.com/import-js/eslint-plugin-import/blob/main/docs/rules/${rule}.md`;
+      }
+      if (plugin === 'unicorn') {
+        return `https://github.com/sindresorhus/eslint-plugin-unicorn/blob/main/docs/rules/${rule}.md`;
+      }
+      if (plugin === 'sonarjs') {
+        return `https://github.com/SonarSource/eslint-plugin-sonarjs/blob/master/docs/rules/${rule}.md`;
+      }
+      // Fallback to searching plugin rule docs on GitHub by convention
+      return `https://www.google.com/search?q=${encodeURIComponent(ruleId + ' eslint rule')}`;
+    }
+    // Core rule
+    return `https://eslint.org/docs/latest/rules/${ruleId}`;
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Check if a file path should be ignored based on patterns
  */
@@ -188,6 +251,16 @@ function normalizeIgnorePattern(pat) {
     p = `**/${p}/**`;
   }
   return p;
+}
+
+// Convert a glob-like pattern into a loose regex string for CLI tools that accept regex (ts-prune)
+function globToRegexString(glob) {
+  const g = normalizeIgnorePattern(glob)
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials first
+    .replace(/\*\*/g, '.*')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '.');
+  return g;
 }
 
 function shouldIgnoreFile(filePath, ignorePatterns) {
@@ -308,7 +381,7 @@ function renderFileTree(tree, level = 0) {
 /**
  * Run ts-prune to find unused exports
  */
-function runTsPrune() {
+function runTsPrune(ignorePatternsExt = []) {
   try {
     if (noTsPrune) {
       console.log('[INFO] Skipping ts-prune by flag');
@@ -325,26 +398,29 @@ function runTsPrune() {
     // Prefer local binary if available to avoid network
     const localBin = path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'ts-prune.cmd' : 'ts-prune');
     const nestedBin = path.join(process.cwd(), 'node_modules', '@scriptc', 'dev-tools', 'node_modules', '.bin', process.platform === 'win32' ? 'ts-prune.cmd' : 'ts-prune');
+    const extraIgnores = (Array.isArray(ignorePatternsExt) ? ignorePatternsExt : [])
+      .map(globToRegexString)
+      .filter(Boolean);
+    const ignoreRegex = ['\\.pb\\.ts$', '/proto/', '/protos/', ...extraIgnores]
+      .filter(Boolean)
+      .join('|');
     const cmd = fs.existsSync(localBin)
-      ? `"${localBin}" src --ignore "\\.pb\\.ts$|/proto/|/protos/"`
+      ? `"${localBin}" src --ignore "${ignoreRegex}"`
       : fs.existsSync(nestedBin)
-        ? `"${nestedBin}" src --ignore "\\.pb\\.ts$|/proto/|/protos/"`
-        : 'npx ts-prune src --ignore "\\.pb\\.ts$|/proto/|/protos/"';
+        ? `"${nestedBin}" src --ignore "${ignoreRegex}"`
+        : `npx ts-prune src --ignore "${ignoreRegex}"`;
     const output = execSync(cmd, { encoding: 'utf-8' });
     const lines = output.split('\n').filter(line => line.trim());
 
     const unusedExports = lines
-      .filter(line => line.includes('used in module'))
       .map(line => {
-        const match = line.match(/^(.+?):(\d+) - (.+)$/);
-        if (match) {
-          return {
-            file: match[1],
-            line: parseInt(match[2]),
-            export: match[3],
-          };
-        }
-        return null;
+        const match = line.match(/^(.+?):(\d+)\s*-\s*(.+)$/);
+        if (!match) return null;
+        return {
+          file: match[1],
+          line: parseInt(match[2], 10),
+          export: match[3],
+        };
       })
       .filter(Boolean);
 
@@ -358,7 +434,7 @@ function runTsPrune() {
 /**
  * Run jscpd to find code duplicates
  */
-function runJscpd() {
+function runJscpd(ignorePatternsExt = []) {
   try {
     if (noJscpd) {
       console.log('[INFO] Skipping jscpd by flag');
@@ -371,11 +447,14 @@ function runJscpd() {
     try {
       const localBin = path.join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'jscpd.cmd' : 'jscpd');
       const nestedBin = path.join(process.cwd(), 'node_modules', '@scriptc', 'dev-tools', 'node_modules', '.bin', process.platform === 'win32' ? 'jscpd.cmd' : 'jscpd');
+      const ignoreArg = (Array.isArray(ignorePatternsExt) && ignorePatternsExt.length)
+        ? ` --ignore "${ignorePatternsExt.map(normalizeIgnorePattern).join(',')}"`
+        : '';
       const baseCmd = fs.existsSync(localBin)
-        ? `"${localBin}" src --reporters json --output reports --threshold 100 --exitCode 0`
+        ? `"${localBin}" src --reporters json --output reports --threshold 100 --exitCode 0${ignoreArg}`
         : fs.existsSync(nestedBin)
-          ? `"${nestedBin}" src --reporters json --output reports --threshold 100 --exitCode 0`
-          : `npx jscpd src --reporters json --output reports --threshold 100 --exitCode 0`;
+          ? `"${nestedBin}" src --reporters json --output reports --threshold 100 --exitCode 0${ignoreArg}`
+          : `npx jscpd src --reporters json --output reports --threshold 100 --exitCode 0${ignoreArg}`;
       execSync(baseCmd, {
         encoding: 'utf-8',
         stdio: 'pipe'
@@ -442,22 +521,34 @@ async function generateHtmlLintReport() {
     console.log(`[INFO] Ignoring patterns: ${shown.join(', ')}`);
   }
 
-  const buildBaseConfig = () => {
+  const buildBaseConfig = (opts = {}) => {
+    const {
+      noUnicorn = false,
+      noImport = false,
+      noSonar = false,
+      noSecurity = false,
+    } = opts || {};
     // Construir una config mínima dinámica según paquetes disponibles
     const hasTsParser = canResolve('@typescript-eslint/parser');
     const hasTsPlugin = canResolve('@typescript-eslint/eslint-plugin');
-    const hasImport = canResolve('eslint-plugin-import');
-    const hasSonar = canResolve('eslint-plugin-sonarjs');
-    const hasUnicorn = canResolve('eslint-plugin-unicorn');
+    const hasImport = !noImport && canResolve('eslint-plugin-import');
+    const hasSonar = !noSonar && canResolve('eslint-plugin-sonarjs');
+    const hasUnicorn = !noUnicorn && canResolve('eslint-plugin-unicorn');
+    const hasSecurity = !noSecurity && canResolve('eslint-plugin-security');
 
     const base = {
       ignorePatterns: ['node_modules/**', 'dist/**', 'build/**'],
       env: { es2021: true, browser: true, node: true },
       extends: ['eslint:recommended'],
+      plugins: [],
       overrides: [],
       rules: {},
       settings: {},
     };
+    if (hasSecurity) {
+      base.plugins.push('security');
+      base.extends.push('plugin:security/recommended');
+    }
     if (hasTsParser) {
       base.overrides.push({
         files: ['**/*.ts', '**/*.tsx'],
@@ -468,12 +559,14 @@ async function generateHtmlLintReport() {
           ...(hasImport ? ['import'] : []),
           ...(hasSonar ? ['sonarjs'] : []),
           ...(hasUnicorn ? ['unicorn'] : []),
+          ...(hasSecurity ? ['security'] : []),
         ],
         extends: [
           ...(hasTsPlugin ? ['plugin:@typescript-eslint/recommended'] : []),
           ...(hasImport ? ['plugin:import/recommended', 'plugin:import/typescript'] : []),
           ...(hasSonar ? ['plugin:sonarjs/recommended'] : []),
           ...(hasUnicorn ? ['plugin:unicorn/recommended'] : []),
+          ...(hasSecurity ? ['plugin:security/recommended'] : []),
         ],
       });
     }
@@ -494,44 +587,113 @@ async function generateHtmlLintReport() {
   } else {
     patterns = ['src/**/*.ts'];
   }
+
+  // Collect files via fast-glob to avoid ESLint touching invalid package.json in CWD
+  const defaultIgnores = ['**/node_modules/**', '**/dist/**', '**/build/**'];
+  const cliIgnores = (ignorePatterns || []).map(normalizeIgnorePattern);
+  const globbedFiles = await fg(patterns, {
+    cwd: process.cwd(),
+    absolute: true,
+    onlyFiles: true,
+    dot: false,
+    ignore: [...defaultIgnores, ...cliIgnores],
+    unique: true,
+    followSymbolicLinks: false,
+  });
+
+  // If no files found, attempt a broader fallback
+  let filesToLint = globbedFiles;
+  if (!filesToLint.length) {
+    const hasSrc = fs.existsSync(path.join(process.cwd(), 'src'));
+    const fallback = hasSrc
+      ? ['src/**/*.{ts,tsx,js,jsx}']
+      : ['**/*.{ts,tsx,js,jsx}'];
+    filesToLint = await fg(fallback, {
+      cwd: process.cwd(),
+      absolute: true,
+      onlyFiles: true,
+      dot: false,
+      ignore: [...defaultIgnores, ...cliIgnores],
+      unique: true,
+      followSymbolicLinks: false,
+    });
+    if (!filesToLint.length) {
+      console.warn('[WARN] No files found to lint.');
+    }
+  }
+
+  // Use a temporary CWD with a valid package.json to prevent ESLint from parsing the project's package.json
+  const tmpCwd = path.join(process.cwd(), 'reports', '.eslint-tmp');
+  try { fs.mkdirSync(tmpCwd, { recursive: true }); } catch {}
+  try {
+    const pkgPath = path.join(tmpCwd, 'package.json');
+    if (!fs.existsSync(pkgPath)) {
+      fs.writeFileSync(pkgPath, JSON.stringify({ name: 'eslint-tmp', private: true }, null, 2), 'utf8');
+    }
+  } catch {}
+
   let results;
   try {
     const eslint = new ESLint({
+      cwd: tmpCwd,
       extensions: ['.ts', '.tsx', '.js', '.jsx'],
       fix: false,
-      useEslintrc: !forceInternalEslint,
-      baseConfig: forceInternalEslint ? buildBaseConfig() : undefined,
+      useEslintrc: false,
+      baseConfig: buildBaseConfig(),
       errorOnUnmatchedPattern: false,
     });
-    results = await eslint.lintFiles(patterns);
+    results = await eslint.lintFiles(filesToLint);
   } catch (err) {
     const msg = String((err && err.message) || err);
     const needFallback = /Failed to load config|extend-config-missing|Cannot find module 'eslint-config/.test(msg);
+    const unicornFail = /plugin ['\"]unicorn['\"]|eslint-plugin-unicorn/.test(msg);
     const noFiles = /No files matching/.test(msg) || (err && err.name === 'NoFilesFoundError');
     if (noFiles) {
       const hasSrc = fs.existsSync(path.join(process.cwd(), 'src'));
       const fallback = hasSrc
         ? ['src/**/*.{ts,tsx,js,jsx}']
-        : ['**/*.{ts,tsx,js,jsx}', '!**/node_modules/**', '!**/dist/**', '!**/build/**'];
+        : ['**/*.{ts,tsx,js,jsx}'];
       console.warn(`[WARN] No se encontraron archivos con los globs proporcionados. Reintentando con: ${fallback.join(', ')}`);
-      const eslint = new ESLint({
-        extensions: ['.ts', '.tsx', '.js', '.jsx'],
-        fix: false,
-        useEslintrc: !forceInternalEslint,
-        baseConfig: forceInternalEslint ? buildBaseConfig() : undefined,
-        errorOnUnmatchedPattern: false,
+      const files = await fg(fallback, {
+        cwd: process.cwd(),
+        absolute: true,
+        onlyFiles: true,
+        dot: false,
+        ignore: [...defaultIgnores, ...cliIgnores],
+        unique: true,
+        followSymbolicLinks: false,
       });
-      results = await eslint.lintFiles(fallback);
-    } else if (!forceInternalEslint && needFallback) {
-      console.warn('[WARN] ESLint config del proyecto no disponible. Usando configuración interna mínima.');
       const eslint = new ESLint({
+        cwd: tmpCwd,
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
         fix: false,
         useEslintrc: false,
         baseConfig: buildBaseConfig(),
         errorOnUnmatchedPattern: false,
       });
-      results = await eslint.lintFiles(patterns);
+      results = await eslint.lintFiles(files);
+    } else if (!forceInternalEslint && needFallback) {
+      console.warn('[WARN] ESLint config del proyecto no disponible. Usando configuración interna mínima.');
+      const eslint = new ESLint({
+        cwd: tmpCwd,
+        extensions: ['.ts', '.tsx', '.js', '.jsx'],
+        fix: false,
+        useEslintrc: false,
+        baseConfig: buildBaseConfig(),
+        errorOnUnmatchedPattern: false,
+      });
+      results = await eslint.lintFiles(filesToLint);
+    } else if (unicornFail) {
+      console.warn('[WARN] Falling back without eslint-plugin-unicorn due to plugin error.');
+      const eslint = new ESLint({
+        cwd: tmpCwd,
+        extensions: ['.ts', '.tsx', '.js', '.jsx'],
+        fix: false,
+        useEslintrc: false,
+        baseConfig: buildBaseConfig({ noUnicorn: true }),
+        errorOnUnmatchedPattern: false,
+      });
+      results = await eslint.lintFiles(filesToLint);
     } else {
       throw err;
     }
@@ -608,8 +770,62 @@ async function generateHtmlLintReport() {
   );
 
   // Run additional tools
-  const tsPruneData = runTsPrune();
-  const jscpdData = runJscpd();
+  const tsPruneData = runTsPrune(ignorePatterns);
+  const jscpdData = runJscpd(ignorePatterns);
+
+  // Security findings (rules from eslint-plugin-security)
+  const securityFindings = [];
+  for (const result of filteredResults) {
+    for (const message of (result.messages || [])) {
+      if (message.ruleId && typeof message.ruleId === 'string' && message.ruleId.startsWith('security/')) {
+        securityFindings.push({
+          file: path.relative(process.cwd(), result.filePath),
+          line: message.line || 0,
+          column: message.column || 0,
+          ruleId: message.ruleId,
+          message: message.message || '',
+          severity: message.severity === 2 ? 'error' : 'warning',
+        });
+      }
+    }
+  }
+  // Secret scanning (regex heuristics)
+  const secretFindings = [];
+  if (!noSecretScan) {
+    const SECRET_PATTERNS = [
+      { key: 'AWS Access Key ID', re: /AKIA[0-9A-Z]{16}/g },
+      { key: 'AWS Secret Access Key', re: new RegExp("aws(.{0,20})?['\"][0-9a-zA-Z/+]{40}['\"]", 'i') },
+      { key: 'Google API Key', re: /AIza[0-9A-Za-z\-_]{35}/g },
+      { key: 'GitHub Token', re: /ghp_[0-9A-Za-z]{36}/g },
+      { key: 'Slack Token', re: /xox[baprs]-[0-9A-Za-z-]{10,}/g },
+      { key: 'Private Key Block', re: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/g },
+      { key: 'JWT-like Token', re: /eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/g },
+      { key: 'Generic Secret Assignment', re: /(password|passwd|pwd|secret|api[-_]?key|token)\s*[:=]\s*['\"][^'"\n]{6,}['\"]/gi },
+    ];
+    for (const res of filteredResults) {
+      const file = path.relative(process.cwd(), res.filePath);
+      try {
+        const content = fs.readFileSync(res.filePath, 'utf-8');
+        const linesArr = content.split('\n');
+        for (let i = 0; i < linesArr.length; i++) {
+          const line = linesArr[i];
+          for (const pat of SECRET_PATTERNS) {
+            pat.re.lastIndex = 0; // reset
+            const matches = line.match(pat.re);
+            if (matches && matches.length) {
+              secretFindings.push({
+                file,
+                line: i + 1,
+                type: pat.key,
+                match: matches[0].slice(0, 120),
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+  }
+  const securityCount = securityFindings.length + secretFindings.length;
 
   // Build file tree
   const filesWithIssues = resultsWithSnippets.filter(
@@ -644,6 +860,7 @@ async function generateHtmlLintReport() {
     { key: 'Warnings', count: warningCount, color: 'hsl(var(--warning))' },
     { key: 'Unused Exports', count: (tsPruneData && tsPruneData.count) || 0, color: 'hsl(var(--success))' },
     { key: 'Code Duplicates', count: (jscpdData && jscpdData.count) || 0, color: 'hsl(var(--primary))' },
+    { key: 'Security', count: securityCount, color: 'hsl(var(--accent))' },
   ];
   const donutTotal = donutData.reduce((s, d) => s + d.count, 0) || 1;
   // Build a conic-gradient string for the donut
@@ -895,10 +1112,20 @@ async function generateHtmlLintReport() {
         .controls-bar .control { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: hsl(var(--foreground)); }
         .controls-bar input[type="checkbox"] { accent-color: hsl(var(--primary)); }
         .chip { display: none; background: hsl(var(--primary) / 0.15); color: hsl(var(--foreground)); border: 1px solid hsl(var(--primary)); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.8rem; }
+        .btn { display: inline-flex; align-items: center; gap: .35rem; border: 1px solid hsl(var(--border)); background: hsl(var(--card)); color: hsl(var(--foreground)); padding: .35rem .6rem; border-radius: 8px; cursor: pointer; transition: background .15s ease, border-color .15s ease, filter .15s ease; }
+        .btn:hover { background: hsl(var(--secondary)); border-color: hsl(var(--primary)); }
+        .btn-outline { background: transparent; border-color: hsl(var(--border)); color: hsl(var(--foreground)); }
+        .btn-outline:hover { background: hsl(var(--secondary)); border-color: hsl(var(--primary)); }
         .btn-clear { display: none; align-items: center; gap: 0.25rem; border: 1px solid hsl(var(--border)); background: hsl(var(--secondary)); color: hsl(var(--foreground)); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
         .btn-copy { display: inline-flex; align-items: center; gap: 0.25rem; border: 1px solid hsl(var(--border)); background: hsl(var(--secondary)); color: hsl(var(--foreground)); padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; }
         .btn-primary { display: inline-flex; align-items: center; gap: .4rem; border: 1px solid hsl(var(--primary)); background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); padding: .5rem .9rem; border-radius: 8px; cursor: pointer; font-weight: 600; }
         .btn-primary:hover { filter: brightness(1.05); }
+        .hidden { display: none !important; }
+
+        /* Make sidebar slimmer on small screens */
+        @media (max-width: 768px) {
+          .sidebar { width: 280px; }
+        }
         .rules-table tbody tr { cursor: pointer; }
 
         .rules-table {
@@ -1165,6 +1392,53 @@ async function generateHtmlLintReport() {
             gap: 0.5rem;
         }
 
+        /* Top navigation and enhanced controls */
+        .top-nav {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: linear-gradient(to bottom, hsl(var(--background)), hsl(var(--background) / 0.96));
+            border-bottom: 1px solid hsl(var(--border));
+            padding: 0.5rem 1rem;
+            display: flex;
+            gap: .5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .top-nav a, .top-nav button, .top-nav select {
+            font-size: .85rem;
+        }
+        .top-nav a {
+            color: hsl(var(--primary));
+            text-decoration: none;
+            padding: .25rem .5rem;
+            border-radius: 6px;
+        }
+        .top-nav a:hover { background: hsl(var(--secondary)); }
+        .top-spacer { height: .25rem; }
+        .controls-bar {
+            gap: .5rem;
+            flex-wrap: wrap;
+        }
+        .controls-row {
+            margin-top: .5rem;
+            display: flex;
+            gap: .5rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .input-sm {
+            height: 32px;
+            padding: 0 .5rem;
+            background: hsl(var(--card));
+            border: 1px solid hsl(var(--border));
+            color: hsl(var(--foreground));
+            border-radius: 6px;
+        }
+        .input-sm:focus, .select-sm:focus { outline: none; border-color: hsl(var(--primary)); box-shadow: 0 0 0 2px hsl(var(--primary) / .35); }
+        .select-sm { height: 32px; }
+        .btn-xs { height: 30px; padding: 0 .6rem; }
+
         .tree-folder-header:hover { background: hsl(var(--secondary)); }
 
         .tree-folder-content {
@@ -1288,9 +1562,14 @@ async function generateHtmlLintReport() {
         <path d="M10 14a5 5 0 0 0 7.07 0l2.83-2.83a5 5 0 0 0-7.07-7.07L11 5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
         <path d="M14 10a5 5 0 0 0-7.07 0L4.1 12.83a5 5 0 0 0 7.07 7.07L13 19" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
       </symbol>
+      <symbol id="icon-lock" viewBox="0 0 24 24">
+        <rect x="4" y="10" width="16" height="10" rx="2" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M8 10V7a4 4 0 1 1 8 0v3" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <circle cx="12" cy="15" r="1.5" fill="currentColor"/>
+      </symbol>
     </svg>
     <script>
-        let filterState = { showErrors: true, showWarnings: true, rule: '' };
+        let filterState = { showErrors: true, showWarnings: true, rule: '', q: '', sort: 'issues' };
         const urlParams = new URLSearchParams(location.search);
         const forceFull = urlParams.get('lite') === '0' || urlParams.get('mode') === 'full';
         const forceLite = urlParams.get('lite') === '1' || urlParams.get('mode') === 'lite';
@@ -1363,14 +1642,17 @@ async function generateHtmlLintReport() {
 
         function updateIssueFilters() {
             const issues = Array.from(document.querySelectorAll('.issue'));
-            const { showErrors, showWarnings, rule } = filterState;
+            const { showErrors, showWarnings, rule, q } = filterState;
+            const ql = (q || '').toLowerCase().trim();
             issues.forEach(issue => {
                 const sev = issue.getAttribute('data-severity');
                 const ruleId = issue.getAttribute('data-rule') || '';
+                const msg = issue.getAttribute('data-message') || '';
                 let visible = true;
                 if (sev === 'error' && !showErrors) visible = false;
                 if (sev === 'warning' && !showWarnings) visible = false;
                 if (rule && ruleId !== rule) visible = false;
+                if (ql && !(msg.includes(ql))) visible = false;
                 issue.style.display = visible ? '' : 'none';
             });
 
@@ -1394,6 +1676,9 @@ async function generateHtmlLintReport() {
                     clearBtn.style.display = 'none';
                 }
             }
+
+            applySorting();
+            syncUrl();
         }
 
         function onSeverityCheckboxChange() {
@@ -1469,12 +1754,101 @@ async function generateHtmlLintReport() {
             });
         }
 
+        function onSearchChange(input) {
+            filterState.q = input.value || '';
+            updateIssueFilters();
+        }
+
+        function onRuleInputChange(input) {
+            filterState.rule = (input.value || '').trim();
+            updateIssueFilters();
+        }
+
+        function onSortChange(select) {
+            filterState.sort = select.value;
+            applySorting();
+            syncUrl();
+        }
+
+        function applySorting() {
+            const container = document.querySelector('#section-files .section-content');
+            if (!container) return;
+            const items = Array.from(container.querySelectorAll('.file-issue'));
+            const sort = filterState.sort || 'issues';
+            items.sort((a, b) => {
+                if (sort === 'alpha') {
+                    const pa = a.getAttribute('data-path') || '';
+                    const pb = b.getAttribute('data-path') || '';
+                    return pa.localeCompare(pb);
+                }
+                if (sort === 'errors') {
+                    const ea = parseInt(a.getAttribute('data-errors') || '0', 10);
+                    const eb = parseInt(b.getAttribute('data-errors') || '0', 10);
+                    return eb - ea || (a.getAttribute('data-path') || '').localeCompare(b.getAttribute('data-path') || '');
+                }
+                // default: visible issues count
+                const va = Array.from(a.querySelectorAll('.issue')).filter(x => x.style.display !== 'none').length;
+                const vb = Array.from(b.querySelectorAll('.issue')).filter(x => x.style.display !== 'none').length;
+                return vb - va || (a.getAttribute('data-path') || '').localeCompare(b.getAttribute('data-path') || '');
+            });
+            items.forEach(el => container.appendChild(el));
+        }
+
+        function expandAllFiles() {
+            document.querySelectorAll('.file-issue').forEach(f => f.classList.remove('file-collapsed'));
+        }
+        function collapseAllFiles() {
+            document.querySelectorAll('.file-issue').forEach(f => f.classList.add('file-collapsed'));
+        }
+
+        function toggleSidebar() {
+            const sb = document.getElementById('sidebar');
+            if (sb) sb.classList.toggle('hidden');
+        }
+
+        function syncUrl() {
+            const url = new URL(location.href);
+            url.searchParams.set('lite', IS_LITE ? '1' : '0');
+            url.searchParams.set('errors', filterState.showErrors ? '1' : '0');
+            url.searchParams.set('warnings', filterState.showWarnings ? '1' : '0');
+            if (filterState.rule) url.searchParams.set('rule', filterState.rule); else url.searchParams.delete('rule');
+            if (filterState.q) url.searchParams.set('q', filterState.q); else url.searchParams.delete('q');
+            if (filterState.sort && filterState.sort !== 'issues') url.searchParams.set('sort', filterState.sort); else url.searchParams.delete('sort');
+            history.replaceState(null, '', url.toString());
+        }
+
         window.addEventListener('load', () => {
             if (IS_LITE) {
-                const ids = ['sidebar','section-charts','section-rules','section-tsprune','section-jscpd','section-files'];
+                const ids = ['sidebar','section-charts','section-rules','section-security','section-secrets','section-tsprune','section-jscpd','section-files'];
                 ids.forEach(id => { const el = document.getElementById(id); if (el) el.remove(); });
                 const cta = document.getElementById('full-report-cta'); if (cta) cta.style.display = '';
             }
+            // Initialize from URL
+            if (urlParams.has('errors')) {
+                const v = urlParams.get('errors') === '1';
+                const eCb = document.getElementById('filter-errors');
+                if (eCb) eCb.checked = v;
+                filterState.showErrors = v;
+            }
+            if (urlParams.has('warnings')) {
+                const v = urlParams.get('warnings') === '1';
+                const wCb = document.getElementById('filter-warnings');
+                if (wCb) wCb.checked = v;
+                filterState.showWarnings = v;
+            }
+            const ruleQ = urlParams.get('rule') || '';
+            const qText = urlParams.get('q') || '';
+            const sort = urlParams.get('sort') || 'issues';
+            filterState.rule = ruleQ;
+            filterState.q = qText;
+            filterState.sort = sort;
+            const ruleInput = document.getElementById('filter-rule-input');
+            if (ruleInput) ruleInput.value = ruleQ;
+            const searchInput = document.getElementById('filter-search');
+            if (searchInput) searchInput.value = qText;
+            const sortSel = document.getElementById('sort-files');
+            if (sortSel) sortSel.value = sort;
+
             onSeverityCheckboxChange();
             if (location.hash) {
                 const id = location.hash.slice(1);
@@ -1484,6 +1858,20 @@ async function generateHtmlLintReport() {
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             }
+
+            // Patch Download JSON link when served via API route
+            try {
+              const a = document.querySelector('a[href="lint-summary.json"]');
+              if (a && location.pathname.includes('/api/repos/')) {
+                const parts = location.pathname.split('/').filter(Boolean);
+                const idx = parts.indexOf('repos');
+                if (idx !== -1 && parts[idx+1] && parts[idx+3]) {
+                  const slug = parts[idx+1];
+                  const id = parts[idx+3];
+                  a.setAttribute('href', location.origin + '/api/repos/' + encodeURIComponent(slug) + '/reports/' + encodeURIComponent(id) + '/lint-summary.json');
+                }
+              }
+            } catch {}
         });
     </script>
     <style>
@@ -1538,6 +1926,19 @@ async function generateHtmlLintReport() {
         </aside>
 
         <div class="container">
+        <div class="top-nav">
+            <a href="#section-charts">Overview</a>
+            <a href="#section-rules">Rules</a>
+            <a href="#section-security">Security</a>
+            <a href="#section-secrets">Secrets</a>
+            <a href="#section-tsprune">Unused Exports</a>
+            <a href="#section-jscpd">Duplicates</a>
+            <a href="#section-files">Files</a>
+            <span style="flex:1"></span>
+            <button class="btn btn-outline btn-xs" onclick="toggleSidebar()">Mostrar/Ocultar Panel</button>
+            <a class="btn btn-outline btn-xs" href="lint-summary.json" target="_blank" rel="noopener noreferrer">Descargar JSON</a>
+        </div>
+        <div class="top-spacer"></div>
         <div class="filters-toolbar">
             <span class="filters-title"><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-filter" /></svg> Filters</span>
             ${ignorePatterns.length > 0 ? ignorePatterns.map((p) => `<span class="chip-filter" title="Ignored pattern"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-tag" /></svg>${escapeHtml(p)}</span>`).join('') : ''}
@@ -1570,6 +1971,10 @@ async function generateHtmlLintReport() {
             <div class="summary-card" style="border-left-color: hsl(var(--warning));">
                 <div class="label">Code Duplicates</div>
                 <div class="value">${jscpdData.count}</div>
+            </div>
+            <div class="summary-card" style="border-left-color: hsl(var(--accent));">
+                <div class="label">Security</div>
+                <div class="value">${securityCount}</div>
             </div>
         </div>
 
@@ -1648,7 +2053,7 @@ async function generateHtmlLintReport() {
                           .map(
                             ([rule, stats]) => `
                         <tr>
-                            <td class="rule-name">${escapeHtml(rule)}</td>
+                            <td class="rule-name">${(() => { const url = docUrlForRule(rule) || '#'; return `<a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(rule)}</a>`; })()}</td>
                             <td style="text-align: center; font-weight: bold;">${stats.count}</td>
                             <td style="text-align: center;">${stats.errors > 0 ? `<span class="badge badge-error">${stats.errors}</span>` : '—'}</td>
                             <td style="text-align: center;">${stats.warnings > 0 ? `<span class="badge badge-warning">${stats.warnings}</span>` : '—'}</td>
@@ -1664,6 +2069,66 @@ async function generateHtmlLintReport() {
         `
             : ''
         }
+
+        ${securityCount > 0 ? `
+        <div id="section-security" class="section collapsible collapsed">
+            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-alert\" /></svg> Security Findings (eslint-plugin-security)</span><span class=\"caret\">▾</span></div>
+            <div class="section-content">
+                <div class="table-responsive"><table class="rules-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Line</th>
+                            <th>Rule</th>
+                            <th>Severity</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${securityFindings.slice(0, 200).map(item => `
+                        <tr>
+                            <td><code>${escapeHtml(item.file)}</code></td>
+                            <td style=\"text-align: center;\">${item.line}</td>
+                            <td>${(() => { const url = docUrlForRule(item.ruleId); const content = `<code>${escapeHtml(item.ruleId)}</code>`; return url ? `<a href=\"${url}\" target=\"_blank\" rel=\"noopener noreferrer\">${content}</a>` : content; })()}</td>
+                            <td style=\"text-align: center;\">${item.severity}</td>
+                            <td>${escapeHtml(item.message)}</td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table></div>
+                ${securityFindings.length > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${securityFindings.length} security rule findings</p>` : ''}
+            </div>
+        </div>
+        ` : ''}
+
+        ${secretFindings.length > 0 ? `
+        <div id="section-secrets" class="section collapsible collapsed">
+            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-lock\" /></svg> Secrets & Credentials (pattern scan)</span><span class=\"caret\">▾</span></div>
+            <div class="section-content">
+                <div class="table-responsive"><table class="rules-table">
+                    <thead>
+                        <tr>
+                            <th>File</th>
+                            <th>Line</th>
+                            <th>Type</th>
+                            <th>Excerpt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${secretFindings.slice(0, 200).map(item => `
+                        <tr>
+                            <td><code>${escapeHtml(item.file)}</code></td>
+                            <td style=\"text-align: center;\">${item.line}</td>
+                            <td>${escapeHtml(item.type)}</td>
+                            <td><code>${escapeHtml(item.match)}</code></td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table></div>
+                ${secretFindings.length > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${secretFindings.length} potential secrets</p>` : ''}
+            </div>
+        </div>
+        ` : ''}
 
         ${tsPruneData.count > 0 ? `
         <div id="section-tsprune" class="section collapsible collapsed">
@@ -1732,6 +2197,17 @@ async function generateHtmlLintReport() {
                     <span class="control">Rule: <span id="active-rule-chip" class="chip"></span></span>
                     <button id="clear-rule-filter" class="btn-clear" onclick="clearRuleFilter()"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-x-circle" /></svg> Clear</button>
                 </div>
+                <div class="controls-row">
+                    <input id="filter-search" class="input-sm" placeholder="Buscar issues o archivos..." oninput="onSearchChange(this)" />
+                    <input id="filter-rule-input" class="input-sm" placeholder="Filtrar por regla (p. ej., no-unused-vars)" oninput="onRuleInputChange(this)" />
+                    <select id="sort-files" class="input-sm select-sm" onchange="onSortChange(this)">
+                        <option value="issues">Ordenar: Más issues</option>
+                        <option value="errors">Ordenar: Más errores</option>
+                        <option value="alpha">Ordenar: A → Z</option>
+                    </select>
+                    <button class="btn btn-outline btn-xs" onclick="expandAllFiles()">Expandir todo</button>
+                    <button class="btn btn-outline btn-xs" onclick="collapseAllFiles()">Colapsar todo</button>
+                </div>
                 ${
                   totalIssues === 0
                     ? `
@@ -1753,7 +2229,7 @@ async function generateHtmlLintReport() {
                           );
                           const fileId = `file-${relativePath.replace(/[^a-zA-Z0-9]/g, '-')}`;
                           return `
-                        <div class="file-issue" id="${fileId}">
+                        <div class="file-issue" id="${fileId}" data-path="${escapeHtml(relativePath)}" data-errors="${result.errorCount}" data-warnings="${result.warningCount}">
                             <div class="file-header" onclick="toggleFileCollapse(this.parentElement, event)">
                                 <div class="file-header-left">
                                     <div class="collapse-toggle"></div>
@@ -1776,7 +2252,7 @@ async function generateHtmlLintReport() {
                                 const hasContent = snippet.visible.length > 0 || snippet.expandableTop.length > 0 || snippet.expandableBottom.length > 0;
 
                                 return `
-                                <div class="issue" data-severity="${isError ? 'error' : 'warning'}" data-rule="${escapeHtml(message.ruleId || '')}">
+                                <div class="issue" data-severity="${isError ? 'error' : 'warning'}" data-rule="${escapeHtml(message.ruleId || '')}" data-message="${escapeHtml((message.message || '').toLowerCase())}">
                                     <div class="issue-header">
                                         <div class="severity-icon severity-${isError ? 'error' : 'warning'}">
                                             <svg class="icon" viewBox="0 0 24 24"><use href="#${isError ? 'icon-x-circle' : 'icon-alert'}" /></svg>
@@ -1793,7 +2269,7 @@ async function generateHtmlLintReport() {
                                                     ? `
                                                 <div class="issue-meta-item">
                                                     <svg class="icon" viewBox="0 0 24 24"><use href="#icon-tag" /></svg>
-                                                    <code lang="typescript">${escapeHtml(message.ruleId)}</code>
+                                                    ${(() => { const url = docUrlForRule(message.ruleId); const content = `<code lang="typescript">${escapeHtml(message.ruleId)}</code>`; return url ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${content}</a>` : content; })()}
                                                 </div>
                                                 `
                                                     : ''
@@ -1885,6 +2361,32 @@ async function generateHtmlLintReport() {
     `[SUMMARY] ${totalIssues} total issues (${errorCount} errors, ${warningCount} warnings)`,
   );
 
+  // Quality gates (optional) — compute first to include in summary
+  let exitCode = 0;
+  const failures = [];
+  if (strictMode && errorCount > 0) {
+    failures.push(`strict mode: ${errorCount} errors > 0`);
+  }
+  if (typeof maxErrorsGate === 'number' && errorCount > maxErrorsGate) {
+    failures.push(`errors ${errorCount} > max-errors ${maxErrorsGate}`);
+  }
+  if (typeof maxWarningsGate === 'number' && warningCount > maxWarningsGate) {
+    failures.push(`warnings ${warningCount} > max-warnings ${maxWarningsGate}`);
+  }
+  if (typeof maxUnusedExportsGate === 'number' && (tsPruneData?.count || 0) > maxUnusedExportsGate) {
+    failures.push(`unused-exports ${(tsPruneData?.count || 0)} > max-unused-exports ${maxUnusedExportsGate}`);
+  }
+  if (typeof maxDupPercentGate === 'number' && (jscpdData?.percentage || 0) > maxDupPercentGate) {
+    failures.push(`duplication ${(jscpdData?.percentage || 0).toFixed(2)}% > max-dup-percent ${maxDupPercentGate}`);
+  }
+  if (typeof maxSecretsGate === 'number' && (secretFindings?.length || 0) > maxSecretsGate) {
+    failures.push(`secrets ${(secretFindings?.length || 0)} > max-secrets ${maxSecretsGate}`);
+  }
+  if (failures.length > 0) {
+    exitCode = 2;
+    console.log(`[QUALITY GATE] Failed: ${failures.join('; ')}`);
+  }
+
   // Write machine-readable summary alongside HTML for persistence/history
   try {
     const topRules = (Array.isArray(sortedRules) ? sortedRules : [])
@@ -1902,14 +2404,18 @@ async function generateHtmlLintReport() {
         count: (typeof jscpdData?.count === 'number') ? jscpdData.count : 0,
         percentage: (typeof jscpdData?.percentage === 'number') ? jscpdData.percentage : 0,
       },
+      security: { count: securityCount },
+      qualityGate: {
+        passed: failures.length === 0,
+        failures,
+      },
     };
     fs.writeFileSync(path.join(reportsDir, 'lint-summary.json'), JSON.stringify(jsonSummary, null, 2), 'utf8');
   } catch (e) {
     console.warn('[WARN] Failed to write lint-summary.json:', e?.message || e);
   }
 
-  // Don't exit with error code to allow viewing the report even when there are errors
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 generateHtmlLintReport().catch((error) => {

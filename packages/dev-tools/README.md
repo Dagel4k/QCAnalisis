@@ -3,6 +3,7 @@
 Meta devDependency para instalar de un jalón herramientas comunes de revisión:
 - ESLint + @typescript-eslint
 - Plugins: sonarjs, unicorn, import
+ - Plugins: sonarjs, unicorn, import, security
 - TypeScript
 - shiki (para coloreado en reportes HTML)
 - ts-prune (exports sin uso)
@@ -25,4 +26,3 @@ Uso típico:
    node /ruta/a/generate-html-lint-report.js
 
 Nota: este paquete sirve como agregador; no configura tu proyecto por sí solo. Úsalo junto con un .eslintrc.js apropiado.
-

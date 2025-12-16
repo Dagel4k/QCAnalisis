@@ -190,6 +190,17 @@ Lista y analiza ramas desde GitLab:
 Analiza ramas específicas por nombre:
 - Lista separada por comas
 
+## Opciones Avanzadas
+
+- Ignorar patrones: aplica a ESLint, ts-prune y jscpd.
+- Globs personalizados: limita archivos a analizar.
+- Sólo cambios en MRs: analiza únicamente archivos modificados vs rama destino (requiere fetch de destino).
+- Quality gates (opcionales):
+  - Strict (falla si hay errores ESLint)
+  - Máx. errores / Máx. warnings
+  - Máx. exports sin uso (ts-prune)
+  - Máx. % duplicación (jscpd)
+
 ## Almacenamiento
 
 Los reportes se guardan en filesystem:

@@ -192,6 +192,60 @@ reposRouter.get('/:slug/reports/:id', (req, res) => {
   }
 });
 
+// GET /api/repos/:slug/reports/:id/lint-summary.json - Serve JSON summary alongside the report
+reposRouter.get('/:slug/reports/:id/lint-summary.json', (req, res) => {
+  try {
+    const { slug, id } = req.params;
+    const repos = getRepositories();
+    const repo = repos.find(r => r.slug === slug);
+
+    // Try standard locations
+    const primary = path.join(config.storageDir, slug, id, 'lint-summary.json');
+    const secondary = path.join(config.storageDir, id, 'lint-summary.json');
+    const candidates: string[] = [];
+    if (fs.existsSync(primary)) candidates.push(primary);
+    if (fs.existsSync(secondary)) candidates.push(secondary);
+
+    if (candidates.length === 0) {
+      const summary = findSummaryForRepo(slug, repo?.repoUrl);
+      if (summary) {
+        // Prefer history
+        if (summary.history && summary.history.length > 0) {
+          const found = summary.history.find(h => h.id === id || (h.report && h.report.includes(id)));
+          if (found?.report) {
+            const dir = path.dirname(found.report);
+            const candidate = path.isAbsolute(dir)
+              ? path.join(dir, 'lint-summary.json')
+              : path.resolve(config.storageDir, dir, 'lint-summary.json');
+            if (fs.existsSync(candidate)) candidates.push(candidate);
+          }
+        }
+        if (candidates.length === 0) {
+          const branch = summary.branches.find(b => {
+            const branchName = b.name || '';
+            const rpath = b.reportPath || '';
+            return branchName === id || rpath.includes(id) || rpath.includes(id.replace(/\//g, '-'));
+          });
+          if (branch && branch.reportPath) {
+            const rel = path.isAbsolute(branch.reportPath)
+              ? path.join(path.dirname(branch.reportPath), 'lint-summary.json')
+              : path.resolve(config.storageDir, path.dirname(branch.reportPath), 'lint-summary.json');
+            if (fs.existsSync(rel)) candidates.push(rel);
+          }
+        }
+      }
+    }
+
+    const resolved = candidates.find(p => fs.existsSync(p));
+    if (!resolved) return res.status(404).json({ error: 'Summary not found' });
+    res.setHeader('Content-Type', 'application/json');
+    res.sendFile(path.resolve(resolved));
+  } catch (error) {
+    console.error('Error serving summary json:', error);
+    res.status(500).json({ error: 'Failed to serve summary' });
+  }
+});
+
 // POST /api/repos/import-default - Import repos from a fixed local path
 // NOTE: This is intended for local usage to quickly load repos.json.
 reposRouter.post('/import-default', (req, res) => {
