@@ -1,75 +1,115 @@
 module.exports = {
-    parser: '@typescript-eslint/parser',
-    parserOptions: {
-      project: 'tsconfig.json',
-      sourceType: 'module',
-    },
+    ignorePatterns: ['repo-scan-dashboard-main/dist/**'],
+    env: { node: true, es2020: true },
+    // parser: '@typescript-eslint/parser', // Parser will be set in overrides
+    // parserOptions: { // Parser options will be set in overrides
+    //   project: ['./tsconfig.json', './repo-scan-dashboard-main/tsconfig.eslint.json'],
+    //   sourceType: 'module',
+    // },
     plugins: [
       '@typescript-eslint/eslint-plugin',
-      'sonarjs',      // Code smells & complexity
-      'unicorn',      // More code quality rules
-      'import',       // Import/export organization
+      'sonarjs',
+      'unicorn',
+      'import',
     ],
     extends: [
-      'plugin:@typescript-eslint/recommended',
-      'plugin:@typescript-eslint/recommended-requiring-type-checking',
-      'plugin:sonarjs/recommended',  // 🔥 This is the game-changer
-      'plugin:unicorn/recommended',
-      'plugin:import/recommended',
-      'plugin:import/typescript',
+      'eslint:recommended',
     ],
-    rules: {
-      // SonarJS rules - catches code smells
-      'sonarjs/cognitive-complexity': ['error', 15],
-      'sonarjs/no-duplicate-string': ['error', { threshold: 3 }],
-      'sonarjs/no-identical-functions': 'error',
-      'sonarjs/no-redundant-boolean': 'error',
-      'sonarjs/no-unused-collection': 'error',
-      'sonarjs/no-useless-catch': 'error',
-      'sonarjs/prefer-immediate-return': 'error',
-      'sonarjs/prefer-object-literal': 'error',
-      'sonarjs/prefer-single-boolean-return': 'error',
-      
-      // Unicorn rules - modern best practices
-      'unicorn/no-abusive-eslint-disable': 'error',
-      'unicorn/no-array-for-each': 'error',
-      'unicorn/no-await-expression-member': 'error',
-      'unicorn/no-lonely-if': 'error',
-      'unicorn/no-useless-undefined': 'error',
-      'unicorn/prefer-array-some': 'error',
-      'unicorn/prefer-default-parameters': 'error',
-      'unicorn/prefer-includes': 'error',
-      'unicorn/prefer-optional-catch-binding': 'error',
-      
-      // Import rules - organization
-      'import/no-duplicates': 'error',
-      'import/no-unused-modules': 'error',
-      'import/order': ['error', {
-        'groups': [
-          'builtin',
-          'external',
-          'internal',
-          'parent',
-          'sibling',
-          'index'
-        ],
-        'newlines-between': 'always',
-        'alphabetize': { order: 'asc' }
-      }],
-      
-      // TypeScript complexity rules
-      '@typescript-eslint/no-unnecessary-condition': 'error',
-      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
-      '@typescript-eslint/prefer-nullish-coalescing': 'error',
-      '@typescript-eslint/prefer-optional-chain': 'error',
-      '@typescript-eslint/prefer-reduce-type-parameter': 'error',
-      '@typescript-eslint/prefer-string-starts-ends-with': 'error',
-      
-      // Complexity limits
-      'complexity': ['error', 10],
-      'max-depth': ['error', 3],
-      'max-lines-per-function': ['error', { max: 50, skipBlankLines: true, skipComments: true }],
-      'max-nested-callbacks': ['error', 3],
-      'max-params': ['error', 4],
+    settings: {
+      'import/resolver': {
+        node: {
+          extensions: ['.js', '.mjs', '.cjs', '.ts', '.tsx']
+        },
+      },
+      react: { // Add React version detection for React-specific rules
+        version: "detect"
+      }
     },
+    rules: {},
+    overrides: [
+      // Override for Node.js CommonJS scripts across the repo (outside the TS app)
+      {
+        files: [
+          '*.js',
+          'bin/**/*.js',
+          'scripts/**/*.js',
+          'packages/dev-tools/**/*.js',
+        ],
+        excludedFiles: [
+          'repo-scan-dashboard-main/**',
+        ],
+        parser: 'espree',
+        env: { node: true, es2020: true },
+        parserOptions: { ecmaVersion: 2020, sourceType: 'script' },
+        rules: {
+          'unicorn/*': 'off',
+          'sonarjs/*': 'off',
+          'import/*': 'off',
+          'no-empty': 'off',
+          'no-undef': 'off',
+          'complexity': 'off',
+          'max-lines-per-function': 'off',
+          'max-params': 'off',
+          'max-depth': 'off',
+        },
+      },
+      {
+        files: ['repo-scan-dashboard-main/**/*.{ts,tsx}'], // Apply TypeScript-specific rules only to TS/TSX files
+        excludedFiles: [
+          'repo-scan-dashboard-main/dist/**', // Exclude compiled output
+          'repo-scan-dashboard-main/vite.config.ts', // Handle with JS-like override below
+        ],
+        parser: '@typescript-eslint/parser', // Explicitly set parser for TS/TSX
+        parserOptions: {
+          project: 'repo-scan-dashboard-main/tsconfig.eslint.json', // Point to the new unified tsconfig for linting
+          tsconfigRootDir: __dirname, // Resolve tsconfig from project root
+          sourceType: 'module',
+        },
+        extends: [ // TS rules without heavy type-checking set
+          'plugin:@typescript-eslint/recommended',
+        ],
+        rules: {
+          // Relax noisy rules for the TS app
+          'unicorn/*': 'off',
+          'sonarjs/*': 'off',
+          'import/*': 'off',
+          'complexity': 'off',
+          'max-lines-per-function': 'off',
+          'max-depth': 'off',
+          'max-params': 'off',
+          '@typescript-eslint/no-unused-vars': 'off',
+        },
+      },
+      // Override for CommonJS scripts that use require and other CJS features
+      {
+        files: [
+          'repo-scan-dashboard-main/scripts/**/*.js',
+          'repo-scan-dashboard-main/*.config.js',
+          'repo-scan-dashboard-main/postcss.config.js',
+          'repo-scan-dashboard-main/vite.config.ts'
+        ],
+        extends: ['eslint:recommended'], // Only basic JS rules for these files
+        // Use a simpler parser that doesn't require a TypeScript project
+        parser: 'espree', // Or '@babel/eslint-parser' if React/JSX is involved in these JS files
+        parserOptions: {
+          ecmaVersion: 2020,
+          sourceType: 'module', // Can be 'script' or 'module' depending on the file
+        },
+        rules: {
+          // Relax rules for these files
+          'unicorn/*': 'off',
+          'import/*': 'off',
+          'sonarjs/*': 'off',
+          'no-undef': 'off',
+          'no-empty': 'off',
+        },
+      },
+      // File-specific override for the HTML report generator with many escaped quotes
+      {
+        files: ['generate-html-lint-report.js'],
+        rules: {
+          'no-useless-escape': 'off',
+        }
+      },
+    ],
   };

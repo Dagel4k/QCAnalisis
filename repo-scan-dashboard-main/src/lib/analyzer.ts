@@ -1,8 +1,9 @@
-import { spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
 import path from 'path';
 import { config, ensureDirectories } from './config';
 import { AnalysisOptions } from '@/types';
 import { jobManager } from './jobs';
+import { postMrCommentsForRepo } from './mr-comments';
 
 export async function runAnalysis(
   jobId: string,
@@ -94,8 +95,22 @@ export async function runAnalysis(
   }
 
   return new Promise((resolve, reject) => {
-    jobManager.addLog(jobId, `Iniciando análisis: node ${args.join(' ')}`);
+    const setPhase = (phase: string, progress: number) => {
+      jobManager.updateJob(jobId, { phase, progress });
+    };
+
+    const redactedArgs = args.map((arg, i, arr) => {
+      if (arg === '--gitlab-token' && i + 1 < arr.length) {
+        return '--gitlab-token';
+      }
+      if (i > 0 && arr[i - 1] === '--gitlab-token') {
+        return '***';
+      }
+      return arg;
+    });
+    jobManager.addLog(jobId, `Iniciando análisis: node ${redactedArgs.join(' ')}`);
     jobManager.setJobRunning(jobId);
+    setPhase('initializing', 1);
 
     const projectRoot = path.dirname(path.dirname(config.reviewScriptPath));
     
@@ -105,9 +120,25 @@ export async function runAnalysis(
       REPORT_MAX_WARNINGS: typeof options.qualityGates?.maxWarnings === 'number' ? String(options.qualityGates!.maxWarnings) : undefined,
       REPORT_MAX_UNUSED_EXPORTS: typeof options.qualityGates?.maxUnusedExports === 'number' ? String(options.qualityGates!.maxUnusedExports) : undefined,
       REPORT_MAX_DUP_PERCENT: typeof options.qualityGates?.maxDupPercent === 'number' ? String(options.qualityGates!.maxDupPercent) : undefined,
+      // P1 gates
+      REPORT_MAX_SAST: typeof options.maxSast === 'number' ? String(options.maxSast) : undefined,
+      REPORT_MAX_SECRETS: typeof options.maxSecrets === 'number' ? String(options.maxSecrets) : undefined,
+      REPORT_MAX_DEP_VULNS: typeof options.maxDepVulns === 'number' ? String(options.maxDepVulns) : undefined,
+      // P1 toggles
+      REPORT_NO_SEMGREP: options.enableSemgrep === false ? '1' : undefined,
+      REPORT_NO_GITLEAKS: options.enableGitleaks === false ? '1' : undefined,
+      REPORT_NO_SECRET_SCAN: options.enableSecretHeuristics === false ? '1' : undefined,
+      REPORT_NO_OSV: options.enableOsvScanner === false ? '1' : undefined,
+      SEMGREP_CONFIG: options.semgrepConfig || undefined,
+      // P2 performance
+      GIT_FILTER_BLOB_NONE: options.lightClone ? '1' : undefined,
+      REUSE_CLONES: options.reuseClones ? '1' : undefined,
+      CLONE_TIMEOUT_MS: typeof options.cloneTimeoutMs === 'number' ? String(options.cloneTimeoutMs) : undefined,
+      FETCH_TIMEOUT_MS: typeof options.fetchTimeoutMs === 'number' ? String(options.fetchTimeoutMs) : undefined,
+      CMD_TIMEOUT_MS: typeof options.cmdTimeoutMs === 'number' ? String(options.cmdTimeoutMs) : undefined,
     };
 
-    const child = spawn('node', args, {
+    const child: ChildProcessWithoutNullStreams = spawn('node', args, {
       env: {
         ...process.env,
         NODE_ENV: 'production',
@@ -116,18 +147,30 @@ export async function runAnalysis(
         GITLAB_TOKEN: config.gitlabToken || undefined,
         GITLAB_PRIVATE_TOKEN: config.gitlabToken || undefined,
         REPORT_USE_INTERNAL_ESLINT_CONFIG: config.forceEslintConfig ? '1' : undefined,
+        // Override via options if provided
+        ...(options.forceEslintConfig ? { REPORT_USE_INTERNAL_ESLINT_CONFIG: '1' } : {}),
         ...envExtras,
       },
       cwd: projectRoot,
     });
+    runningChildren.set(jobId, child);
 
     child.stdout.on('data', (data) => {
       const log = data.toString();
       jobManager.addLog(jobId, log);
+      // Heuristic phase tracking based on child output
+      if (/====\s*Clonando/i.test(log)) setPhase('cloning', 5);
+      if (/Generando\s+\.eslintrc\.js/i.test(log)) setPhase('configuring', 15);
+      if (/Analizando\s+s[oó]lo/i.test(log) || /Ejecutando reporte ESLint \+ extras/i.test(log)) setPhase('linting', 30);
+      if (/\[FORMAT\]\s+Applying syntax highlighting/i.test(log)) setPhase('reporting', 80);
+      if (/HTML report generated/i.test(log)) setPhase('reporting', 90);
+      if (/Resumen guardado/i.test(log)) setPhase('finalizing', 95);
     });
 
     child.stderr.on('data', (data) => {
-      const log = `[ERROR] ${data.toString()}`;
+      const raw = data.toString();
+      const isWarn = /\[WARN\]/i.test(raw);
+      const log = isWarn ? raw : `[ERROR] ${raw}`;
       jobManager.addLog(jobId, log);
     });
 
@@ -138,9 +181,17 @@ export async function runAnalysis(
     });
 
     child.on('close', (code) => {
+      runningChildren.delete(jobId);
       if (code === 0) {
+        setPhase('completed', 100);
         jobManager.addLog(jobId, '✓ Análisis completado exitosamente');
         jobManager.setJobSucceeded(jobId);
+        // Post MR comments (non-blocking) for MRs mode
+        if (options.mode === 'mrs') {
+          postMrCommentsForRepo(jobId, repoSlug).catch((e) => {
+            jobManager.addLog(jobId, `[WARN] No se pudieron publicar comentarios en MR: ${e?.message || e}`);
+          });
+        }
         resolve();
       } else {
         const errorMsg = `Proceso terminó con código ${code}`;
@@ -150,4 +201,23 @@ export async function runAnalysis(
       }
     });
   });
+}
+
+// --- Cancellation support ---
+const runningChildren = new Map<string, ChildProcessWithoutNullStreams>();
+
+export function cancelAnalysis(jobId: string): boolean {
+  const child = runningChildren.get(jobId);
+  if (!child) return false;
+  try {
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (!child.killed) child.kill('SIGKILL');
+    }, 5000);
+    runningChildren.delete(jobId);
+    jobManager.updateJob(jobId, { status: 'failed', error: 'Cancelled by user', phase: 'cancelled' });
+    return true;
+  } catch {
+    return false;
+  }
 }

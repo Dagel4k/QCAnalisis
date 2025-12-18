@@ -5,9 +5,9 @@ const RepoDetail = lazy(() => import("./pages/RepoDetail"));
 import NotFound from "./pages/NotFound";
 
 const App = () => {
-  const [TooltipProviderComp, setTooltipProviderComp] = useState<React.ComponentType<any> | null>(null);
-  const [ToasterComp, setToasterComp] = useState<React.ComponentType<any> | null>(null);
-  const [SonnerComp, setSonnerComp] = useState<React.ComponentType<any> | null>(null);
+  const [TooltipProviderComp, setTooltipProviderComp] = useState<React.ComponentType<React.PropsWithChildren> | null>(null);
+  const [ToasterComp, setToasterComp] = useState<React.ComponentType | null>(null);
+  const [SonnerComp, setSonnerComp] = useState<React.ComponentType | null>(null);
   // Prefetch lazy route chunk on idle to improve next navigation
   useEffect(() => {
     const prefetch = () => {
@@ -18,12 +18,9 @@ const App = () => {
       import("@/components/ui/sonner").then((m) => setSonnerComp(() => m.Toaster)).catch(() => {});
     };
     // Try to be polite with main thread
-    // @ts-ignore
     if (typeof window !== "undefined" && window.requestIdleCallback) {
-      // @ts-ignore
       const id = window.requestIdleCallback(prefetch, { timeout: 2000 });
       return () => {
-        // @ts-ignore
         if (window.cancelIdleCallback) window.cancelIdleCallback(id);
       };
     } else {
@@ -32,7 +29,7 @@ const App = () => {
     }
   }, []);
 
-  const Provider: React.ComponentType<any> = TooltipProviderComp || Fragment;
+  const Provider: React.ComponentType<React.PropsWithChildren> = TooltipProviderComp || Fragment;
   return (
     <Provider>
       {ToasterComp ? <ToasterComp /> : null}

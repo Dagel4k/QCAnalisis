@@ -1,6 +1,4 @@
-'use client';
-
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -48,13 +46,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (mode === 'specific' || mode === 'branches') {
-      fetchBranches();
-    }
-  }, [mode, repoSlug]);
-
-  const fetchBranches = async () => {
+  const fetchBranches = useCallback(async () => {
     setBranchesLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/branches/${repoSlug}`);
@@ -67,7 +59,13 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
     } finally {
       setBranchesLoading(false);
     }
-  };
+  }, [repoSlug]);
+
+  useEffect(() => {
+    if (mode === 'specific' || mode === 'branches') {
+      fetchBranches();
+    }
+  }, [mode, fetchBranches]);
 
   const filteredBranches = branches.filter(branch =>
     branch.name.toLowerCase().includes(branchSearch.toLowerCase())
@@ -131,7 +129,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         <div>
           <Label htmlFor="mode" className="text-sm font-medium mb-1.5 block">Modo de análisis</Label>
           <Select value={mode} onValueChange={(v) => {
-            setMode(v as any);
+            setMode(v as 'mrs' | 'branches' | 'specific');
             setSelectedBranches([]);
           }}>
             <SelectTrigger id="mode" className="h-9 border-border/50">
@@ -229,7 +227,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
           <div className="space-y-4">
             <div>
               <Label htmlFor="mrState" className="text-sm font-medium mb-1.5 block">Estado de MRs</Label>
-              <Select value={mrState} onValueChange={(v) => setMrState(v as any)}>
+              <Select value={mrState} onValueChange={(v) => setMrState(v as 'opened' | 'merged' | 'closed')}>
                 <SelectTrigger id="mrState" className="h-9 border-border/50">
                   <SelectValue />
                 </SelectTrigger>
@@ -396,3 +394,4 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
     </form>
   );
 }
+

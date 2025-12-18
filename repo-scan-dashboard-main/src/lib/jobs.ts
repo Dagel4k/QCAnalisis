@@ -39,6 +39,8 @@ class JobManager extends EventEmitter {
     this.updateJob(id, {
       status: 'running',
       startedAt: new Date(),
+      progress: 0,
+      phase: 'queued',
     });
     this.runningJobs.add(id);
   }
@@ -47,6 +49,8 @@ class JobManager extends EventEmitter {
     this.updateJob(id, {
       status: 'succeeded',
       finishedAt: new Date(),
+      progress: 100,
+      phase: 'completed',
     });
     this.runningJobs.delete(id);
     this.processQueue();

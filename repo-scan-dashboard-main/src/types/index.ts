@@ -10,6 +10,8 @@ export interface AnalysisJob {
   id: string;
   repoSlug: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
+  progress?: number; // 0-100
+  phase?: string;    // current phase label (e.g., 'cloning','linting','report')
   mode: 'mrs' | 'branches' | 'specific';
   options: AnalysisOptions;
   startedAt?: Date;
@@ -37,6 +39,24 @@ export interface AnalysisOptions {
     maxUnusedExports?: number;
     maxDupPercent?: number;
   };
+  // Advanced toggles (P1/P2)
+  forceEslintConfig?: boolean;
+  enableSemgrep?: boolean;
+  enableGitleaks?: boolean;
+  enableOsvScanner?: boolean;
+  enableSecretHeuristics?: boolean;
+  semgrepConfig?: string;
+  maxSast?: number;
+  maxSecrets?: number;
+  maxDepVulns?: number;
+  lightClone?: boolean; // git --filter=blob:none
+  reuseClones?: boolean; // reuse existing clones safely
+  cloneTimeoutMs?: number;
+  fetchTimeoutMs?: number;
+  cmdTimeoutMs?: number;
+  // P3
+  updateBaseline?: boolean;
+  postMrComment?: boolean;
 }
 
 export interface ReportSummary {
@@ -61,6 +81,8 @@ export interface AnalysisMetrics {
   warningCount?: number;
   tsPrune?: { count: number };
   jscpd?: { count: number; percentage?: number };
+  security?: { count: number };
+  dependencies?: { count: number };
   qualityGate?: { passed: boolean; failures?: string[] };
 }
 

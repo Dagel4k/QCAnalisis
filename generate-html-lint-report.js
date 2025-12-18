@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { pathToFileURL } = require('url');
+const crypto = require('crypto');
 
 let codeToHtml;
 let lintGlobs;
@@ -11,6 +12,9 @@ let forceInternalEslint = process.env.REPORT_USE_INTERNAL_ESLINT_CONFIG === '1';
 let noTsPrune = process.env.REPORT_NO_TSPRUNE === '1';
 let noJscpd = process.env.REPORT_NO_JSCPD === '1';
 let noSecretScan = process.env.REPORT_NO_SECRET_SCAN === '1';
+let noOsv = process.env.REPORT_NO_OSV === '1';
+let noSemgrep = process.env.REPORT_NO_SEMGREP === '1';
+let noGitleaks = process.env.REPORT_NO_GITLEAKS === '1';
 let maxIssuesPerFile = parseInt(process.env.REPORT_MAX_ISSUES_PER_FILE || '', 10);
 if (!Number.isFinite(maxIssuesPerFile) || maxIssuesPerFile <= 0) maxIssuesPerFile = 100;
 let strictMode = process.env.REPORT_STRICT === '1';
@@ -19,11 +23,15 @@ let maxWarningsGate = parseInt(process.env.REPORT_MAX_WARNINGS || '', 10);
 let maxUnusedExportsGate = parseInt(process.env.REPORT_MAX_UNUSED_EXPORTS || '', 10);
 let maxDupPercentGate = parseFloat(process.env.REPORT_MAX_DUP_PERCENT || '');
 let maxSecretsGate = parseInt(process.env.REPORT_MAX_SECRETS || '', 10);
+let maxSastGate = parseInt(process.env.REPORT_MAX_SAST || '', 10);
+let maxDepVulnsGate = parseInt(process.env.REPORT_MAX_DEP_VULNS || '', 10);
 if (!Number.isFinite(maxErrorsGate)) maxErrorsGate = undefined;
 if (!Number.isFinite(maxWarningsGate)) maxWarningsGate = undefined;
 if (!Number.isFinite(maxUnusedExportsGate)) maxUnusedExportsGate = undefined;
 if (!Number.isFinite(maxDupPercentGate)) maxDupPercentGate = undefined;
 if (!Number.isFinite(maxSecretsGate)) maxSecretsGate = undefined;
+if (!Number.isFinite(maxSastGate)) maxSastGate = undefined;
+if (!Number.isFinite(maxDepVulnsGate)) maxDepVulnsGate = undefined;
 
 function canResolve(mod) {
   try {
@@ -36,6 +44,24 @@ function canResolve(mod) {
     ];
     require.resolve(mod, { paths: searchPaths });
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasBin(cmd) {
+  try {
+    const res = require('child_process').spawnSync(cmd, ['--version'], { stdio: 'ignore' });
+    return res.status === 0 || res.status === 1; // some tools return 1 on non-zero but exist
+  } catch {
+    return false;
+  }
+}
+
+function hasDocker() {
+  try {
+    const res = require('child_process').spawnSync('docker', ['--version'], { stdio: 'ignore' });
+    return res.status === 0;
   } catch {
     return false;
   }
@@ -115,6 +141,10 @@ function parseExtraFlags() {
       const n = parseInt(args[i + 1], 10); if (Number.isFinite(n)) maxSecretsGate = n; i++;
     } else if (a.startsWith('--max-secrets=')) {
       const n = parseInt(a.split('=')[1], 10); if (Number.isFinite(n)) maxSecretsGate = n;
+    } else if (a === '--max-sast' && i + 1 < args.length) {
+      const n = parseInt(args[i + 1], 10); if (Number.isFinite(n)) maxSastGate = n; i++;
+    } else if (a.startsWith('--max-sast=')) {
+      const n = parseInt(a.split('=')[1], 10); if (Number.isFinite(n)) maxSastGate = n;
     }
   }
 }
@@ -773,6 +803,175 @@ async function generateHtmlLintReport() {
   const tsPruneData = runTsPrune(ignorePatterns);
   const jscpdData = runJscpd(ignorePatterns);
 
+  // SAST with Semgrep (optional)
+  let semgrepFindings = [];
+  if (!noSemgrep) {
+    const runViaDocker = !hasBin('semgrep') && hasDocker();
+    if (!hasBin('semgrep') && !runViaDocker) {
+      console.warn('[WARN] Semgrep not found in PATH and Docker is unavailable; skipping SAST');
+    } else {
+      console.log(`[RUN] Running Semgrep (SAST) via ${runViaDocker ? 'Docker' : 'local binary'}...`);
+      try {
+        const cfg = (process.env.SEMGREP_CONFIG || 'p/ci').trim();
+        const args = ['--quiet', '--json', '--timeout', '120', '--config', cfg];
+        // map ignore patterns to --exclude when possible (directories only)
+        for (const pat of (ignorePatterns || [])) {
+          if (pat.includes('node_modules') || pat.endsWith('/**') || !pat.includes('*')) {
+            args.push('--exclude', pat.replace('/**', ''));
+          }
+        }
+        const { spawnSync } = require('child_process');
+        let res;
+        if (runViaDocker) {
+          const image = process.env.SEMGREP_IMAGE || 'returntocorp/semgrep:latest';
+          res = spawnSync('docker', ['run', '--rm', '-v', `${process.cwd()}:/src`, '-w', '/src', image, 'semgrep', ...args], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        } else {
+          res = spawnSync('semgrep', args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        }
+      // Semgrep returns exit code 1 when findings found; treat 0/1 as success
+        if (res.error) throw res.error;
+        const stdout = String(res.stdout || '');
+        try {
+          const json = JSON.parse(stdout);
+          if (json && Array.isArray(json.results)) {
+            semgrepFindings = json.results.map((r) => ({
+              check_id: r.check_id,
+              path: r.path,
+              start: r.start ? (r.start.line || 1) : 1,
+              end: r.end ? (r.end.line || r.start?.line || 1) : (r.start?.line || 1),
+              severity: (r.extra && r.extra.severity) || 'WARNING',
+              message: (r.extra && r.extra.message) || '',
+            }));
+          }
+          console.log(`[OK] Semgrep found ${semgrepFindings.length} findings`);
+        } catch (e) {
+          console.warn('[WARN] Semgrep output not JSON; skipping parse');
+        }
+      } catch (e) {
+        console.warn('[WARN] Semgrep failed:', e?.message || e);
+      }
+    }
+  }
+  if (noSemgrep) {
+    console.log('[INFO] Skipping Semgrep by configuration (REPORT_NO_SEMGREP=1)');
+  }
+
+  // Dependency vulnerabilities with OSV-Scanner (optional)
+  let osvFindings = [];
+  if (!noOsv) {
+    const runViaDocker = !hasBin('osv-scanner') && hasDocker();
+    if (!hasBin('osv-scanner') && !runViaDocker) {
+      console.warn('[WARN] OSV-Scanner not found in PATH and Docker is unavailable; skipping dependency scan');
+    } else {
+      console.log(`[RUN] Running OSV-Scanner (dependencies) via ${runViaDocker ? 'Docker' : 'local binary'}...`);
+      try {
+        const { spawnSync } = require('child_process');
+        const args = ['--format', 'json', '--recursive', '.'];
+        let res;
+        if (runViaDocker) {
+          const image = process.env.OSV_IMAGE || 'ghcr.io/google/osv-scanner:latest';
+          res = spawnSync('docker', ['run', '--rm', '-v', `${process.cwd()}:/src`, '-w', '/src', image, ...args], { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+        } else {
+          res = spawnSync('osv-scanner', args, { encoding: 'utf8', maxBuffer: 20 * 1024 * 1024 });
+        }
+        const stdout = String(res.stdout || '');
+        try {
+          const json = JSON.parse(stdout);
+          // Flatten results
+          if (json && Array.isArray(json.results)) {
+            for (const r of json.results) {
+              const source = r.source && (r.source.path || r.source);
+              for (const p of (r.packages || [])) {
+                const pkg = p.package || {};
+                const version = (pkg.version || p.version || 'unknown');
+                for (const vuln of (p.vulnerabilities || [])) {
+                  let sev = 'UNKNOWN';
+                  if (Array.isArray(vuln.severity) && vuln.severity.length > 0) {
+                    // choose the highest severity based on CVSS score
+                    const scores = vuln.severity.map(s => parseFloat(s.score || '0')).filter(Number.isFinite);
+                    const maxScore = scores.length ? Math.max(...scores) : 0;
+                    if (maxScore >= 9.0) sev = 'CRITICAL';
+                    else if (maxScore >= 7.0) sev = 'HIGH';
+                    else if (maxScore >= 4.0) sev = 'MEDIUM';
+                    else if (maxScore > 0) sev = 'LOW';
+                  }
+                  osvFindings.push({
+                    id: vuln.id || (vuln.aliases && vuln.aliases[0]) || 'OSV',
+                    package: pkg.name || 'unknown',
+                    version,
+                    severity: sev,
+                    source: String(source || ''),
+                    summary: vuln.summary || (vuln.details ? String(vuln.details).slice(0, 120) : ''),
+                  });
+                }
+              }
+            }
+          }
+          console.log(`[OK] OSV-Scanner found ${osvFindings.length} findings`);
+        } catch (e) {
+          console.warn('[WARN] OSV-Scanner output not JSON; skipping parse');
+        }
+      } catch (e) {
+        console.warn('[WARN] OSV-Scanner failed:', e?.message || e);
+      }
+    }
+  }
+  if (noOsv) {
+    console.log('[INFO] Skipping OSV-Scanner by configuration (REPORT_NO_OSV=1)');
+  }
+
+  // Secret scanning with Gitleaks (optional)
+  let gitleaksFindings = [];
+  if (!noGitleaks) {
+    const runViaDocker = !hasBin('gitleaks') && hasDocker();
+    if (!hasBin('gitleaks') && !runViaDocker) {
+      console.warn('[WARN] Gitleaks not found in PATH and Docker is unavailable; skipping secret scan');
+    } else {
+      console.log(`[RUN] Running Gitleaks (secrets) via ${runViaDocker ? 'Docker' : 'local binary'}...`);
+      try {
+        const { spawnSync } = require('child_process');
+        // Prefer stdout JSON. Some versions require --report-path; capture stdout anyway
+        const args = ['detect', '--no-git', '--redact', '--report-format', 'json', '--source', '.'];
+        let res;
+        if (runViaDocker) {
+          const image = process.env.GITLEAKS_IMAGE || 'zricethezav/gitleaks:latest';
+          res = spawnSync('docker', ['run', '--rm', '-v', `${process.cwd()}:/src`, '-w', '/src', image, ...args], { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        } else {
+          res = spawnSync('gitleaks', args, { encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 });
+        }
+      // gitleaks returns exit code 1 when leaks found; treat 0/1 as success
+        const stdout = String(res.stdout || '');
+        try {
+          const json = JSON.parse(stdout || '[]');
+          // v8 prints array of leaks; map
+          if (Array.isArray(json)) {
+            gitleaksFindings = json.map((x) => ({
+              file: x.File || x.file || 'unknown',
+              line: x.StartLine || x.startLine || x.Line || 1,
+              rule: x.RuleID || x.ruleID || x.Rule || 'gitleaks',
+              match: x.Match || x.match || '',
+            }));
+          } else if (json && Array.isArray(json.findings)) {
+            gitleaksFindings = json.findings.map((x) => ({
+              file: x.File || x.file || 'unknown',
+              line: x.StartLine || x.startLine || x.Line || 1,
+              rule: x.RuleID || x.ruleID || x.Rule || 'gitleaks',
+              match: x.Match || x.match || '',
+            }));
+          }
+          console.log(`[OK] Gitleaks found ${gitleaksFindings.length} findings`);
+        } catch (e) {
+          console.warn('[WARN] Gitleaks output not JSON; skipping parse');
+        }
+      } catch (e) {
+        console.warn('[WARN] Gitleaks failed:', e?.message || e);
+      }
+    }
+  }
+  if (noGitleaks) {
+    console.log('[INFO] Skipping Gitleaks by configuration (REPORT_NO_GITLEAKS=1)');
+  }
+
   // Security findings (rules from eslint-plugin-security)
   const securityFindings = [];
   for (const result of filteredResults) {
@@ -785,11 +984,12 @@ async function generateHtmlLintReport() {
           ruleId: message.ruleId,
           message: message.message || '',
           severity: message.severity === 2 ? 'error' : 'warning',
+          source: 'eslint-security',
         });
       }
     }
   }
-  // Secret scanning (regex heuristics)
+  // Secret scanning (regex heuristics) + Gitleaks findings
   const secretFindings = [];
   if (!noSecretScan) {
     const SECRET_PATTERNS = [
@@ -818,6 +1018,7 @@ async function generateHtmlLintReport() {
                 line: i + 1,
                 type: pat.key,
                 match: matches[0].slice(0, 120),
+                source: 'heuristic',
               });
             }
           }
@@ -825,7 +1026,33 @@ async function generateHtmlLintReport() {
       } catch {}
     }
   }
+  if (noSecretScan) {
+    console.log('[INFO] Skipping heuristic secret scan by configuration (REPORT_NO_SECRET_SCAN=1)');
+  }
+  // Merge Gitleaks
+  for (const leak of gitleaksFindings) {
+    secretFindings.push({
+      file: leak.file,
+      line: leak.line || 1,
+      type: leak.rule || 'gitleaks',
+      match: String(leak.match || '').slice(0, 120),
+      source: 'gitleaks',
+    });
+  }
+  // Merge Semgrep into security findings list and counts
+  for (const s of semgrepFindings) {
+    securityFindings.push({
+      file: s.path,
+      line: s.start || 1,
+      column: 1,
+      ruleId: `semgrep/${s.check_id}`,
+      message: s.message,
+      severity: s.severity === 'ERROR' ? 'error' : 'warning',
+      source: 'semgrep',
+    });
+  }
   const securityCount = securityFindings.length + secretFindings.length;
+  const depVulnCount = Array.isArray(osvFindings) ? osvFindings.length : 0;
 
   // Build file tree
   const filesWithIssues = resultsWithSnippets.filter(
@@ -861,6 +1088,7 @@ async function generateHtmlLintReport() {
     { key: 'Unused Exports', count: (tsPruneData && tsPruneData.count) || 0, color: 'hsl(var(--success))' },
     { key: 'Code Duplicates', count: (jscpdData && jscpdData.count) || 0, color: 'hsl(var(--primary))' },
     { key: 'Security', count: securityCount, color: 'hsl(var(--accent))' },
+    { key: 'Dep Vulns', count: depVulnCount, color: 'hsl(12 85% 60%)' },
   ];
   const donutTotal = donutData.reduce((s, d) => s + d.count, 0) || 1;
   // Build a conic-gradient string for the donut
@@ -2072,7 +2300,7 @@ async function generateHtmlLintReport() {
 
         ${securityCount > 0 ? `
         <div id="section-security" class="section collapsible collapsed">
-            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-alert\" /></svg> Security Findings (eslint-plugin-security)</span><span class=\"caret\">▾</span></div>
+            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-alert\" /></svg> Security Findings (ESLint + Semgrep)</span><span class=\"caret\">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
                     <thead>
@@ -2080,6 +2308,7 @@ async function generateHtmlLintReport() {
                             <th>File</th>
                             <th>Line</th>
                             <th>Rule</th>
+                            <th>Source</th>
                             <th>Severity</th>
                             <th>Message</th>
                         </tr>
@@ -2090,6 +2319,7 @@ async function generateHtmlLintReport() {
                             <td><code>${escapeHtml(item.file)}</code></td>
                             <td style=\"text-align: center;\">${item.line}</td>
                             <td>${(() => { const url = docUrlForRule(item.ruleId); const content = `<code>${escapeHtml(item.ruleId)}</code>`; return url ? `<a href=\"${url}\" target=\"_blank\" rel=\"noopener noreferrer\">${content}</a>` : content; })()}</td>
+                            <td style=\"text-transform: capitalize;\">${escapeHtml(item.source || 'unknown')}</td>
                             <td style=\"text-align: center;\">${item.severity}</td>
                             <td>${escapeHtml(item.message)}</td>
                         </tr>
@@ -2103,7 +2333,7 @@ async function generateHtmlLintReport() {
 
         ${secretFindings.length > 0 ? `
         <div id="section-secrets" class="section collapsible collapsed">
-            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-lock\" /></svg> Secrets & Credentials (pattern scan)</span><span class=\"caret\">▾</span></div>
+            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-lock\" /></svg> Secrets & Credentials (Heuristics + Gitleaks)</span><span class=\"caret\">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
                     <thead>
@@ -2111,6 +2341,7 @@ async function generateHtmlLintReport() {
                             <th>File</th>
                             <th>Line</th>
                             <th>Type</th>
+                            <th>Source</th>
                             <th>Excerpt</th>
                         </tr>
                     </thead>
@@ -2120,12 +2351,46 @@ async function generateHtmlLintReport() {
                             <td><code>${escapeHtml(item.file)}</code></td>
                             <td style=\"text-align: center;\">${item.line}</td>
                             <td>${escapeHtml(item.type)}</td>
+                            <td style=\"text-transform: capitalize;\">${escapeHtml(item.source || 'unknown')}</td>
                             <td><code>${escapeHtml(item.match)}</code></td>
                         </tr>
                         `).join('')}
                     </tbody>
                 </table></div>
                 ${secretFindings.length > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${secretFindings.length} potential secrets</p>` : ''}
+            </div>
+        </div>
+        ` : ''}
+
+        ${depVulnCount > 0 ? `
+        <div id=\"section-deps\" class=\"section collapsible collapsed\">
+            <div class=\"section-header\" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-alert\" /></svg> Dependencies Vulnerabilities (OSV-Scanner)</span><span class=\"caret\">▾</span></div>
+            <div class=\"section-content\">
+                <div class=\"table-responsive\"><table class=\"rules-table\">
+                    <thead>
+                        <tr>
+                            <th>Package</th>
+                            <th>Version</th>
+                            <th>Vuln ID</th>
+                            <th>Severity</th>
+                            <th>Source</th>
+                            <th>Summary</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${osvFindings.slice(0, 200).map(v => `
+                        <tr>
+                            <td><code>${escapeHtml(v.package)}</code></td>
+                            <td style=\"text-align:center;\">${escapeHtml(v.version)}</td>
+                            <td><code>${escapeHtml(v.id)}</code></td>
+                            <td style=\"text-align:center;\">${escapeHtml(v.severity)}</td>
+                            <td><code>${escapeHtml(v.source || '')}</code></td>
+                            <td>${escapeHtml(v.summary || '')}</td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table></div>
+                ${depVulnCount > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${depVulnCount} dependency vulnerabilities</p>` : ''}
             </div>
         </div>
         ` : ''}
@@ -2382,6 +2647,12 @@ async function generateHtmlLintReport() {
   if (typeof maxSecretsGate === 'number' && (secretFindings?.length || 0) > maxSecretsGate) {
     failures.push(`secrets ${(secretFindings?.length || 0)} > max-secrets ${maxSecretsGate}`);
   }
+  if (typeof maxSastGate === 'number' && (semgrepFindings?.length || 0) > maxSastGate) {
+    failures.push(`sast ${(semgrepFindings?.length || 0)} > max-sast ${maxSastGate}`);
+  }
+  if (typeof maxDepVulnsGate === 'number' && depVulnCount > maxDepVulnsGate) {
+    failures.push(`dependencies ${depVulnCount} > max-dep-vulns ${maxDepVulnsGate}`);
+  }
   if (failures.length > 0) {
     exitCode = 2;
     console.log(`[QUALITY GATE] Failed: ${failures.join('; ')}`);
@@ -2405,6 +2676,7 @@ async function generateHtmlLintReport() {
         percentage: (typeof jscpdData?.percentage === 'number') ? jscpdData.percentage : 0,
       },
       security: { count: securityCount },
+      dependencies: { count: depVulnCount },
       qualityGate: {
         passed: failures.length === 0,
         failures,
@@ -2413,6 +2685,158 @@ async function generateHtmlLintReport() {
     fs.writeFileSync(path.join(reportsDir, 'lint-summary.json'), JSON.stringify(jsonSummary, null, 2), 'utf8');
   } catch (e) {
     console.warn('[WARN] Failed to write lint-summary.json:', e?.message || e);
+  }
+
+  // CodeClimate JSON (GitLab Code Quality)
+  try {
+    const issues = [];
+    for (const res of filteredResults) {
+      const relPath = path.relative(process.cwd(), res.filePath);
+      for (const msg of (res.messages || [])) {
+        const severity = msg.severity === 2 ? 'major' : 'minor';
+        const categories = msg.severity === 2 ? ['Bug Risk'] : ['Style'];
+        const fp = crypto
+          .createHash('md5')
+          .update(`${relPath}:${msg.ruleId || 'eslint'}:${msg.line || 0}:${msg.column || 0}:${msg.message || ''}`)
+          .digest('hex');
+        issues.push({
+          type: 'issue',
+          check_name: msg.ruleId || 'eslint',
+          description: msg.message || '',
+          categories,
+          severity,
+          fingerprint: fp,
+          location: {
+            path: relPath,
+            positions: {
+              begin: { line: msg.line || 1, column: msg.column || 1 },
+            },
+          },
+        });
+      }
+    }
+    // Append OSV-Scanner findings as CodeClimate issues (category Security)
+    for (const v of osvFindings) {
+      const relPath = v.source || 'dependency-manifest';
+      const sev = (v.severity || 'MEDIUM').toUpperCase();
+      const severity = (sev === 'CRITICAL' || sev === 'HIGH') ? 'major' : 'minor';
+      const fp = crypto
+        .createHash('md5')
+        .update(`osv:${relPath}:${v.package}:${v.version}:${v.id}`)
+        .digest('hex');
+      issues.push({
+        type: 'issue',
+        check_name: `osv:${v.id}`,
+        description: `${v.package}@${v.version}: ${v.summary || 'Vulnerability found'}`,
+        categories: ['Security'],
+        severity,
+        fingerprint: fp,
+        location: {
+          path: relPath,
+          positions: { begin: { line: 1, column: 1 } },
+        },
+      });
+    }
+    // Append Semgrep findings as CodeClimate issues (category Security)
+    for (const s of semgrepFindings) {
+      const relPath = s.path;
+      const sev = s.severity === 'ERROR' ? 'major' : 'minor';
+      const fp = crypto
+        .createHash('md5')
+        .update(`semgrep:${relPath}:${s.check_id}:${s.start}:${s.message}`)
+        .digest('hex');
+      issues.push({
+        type: 'issue',
+        check_name: `semgrep:${s.check_id}`,
+        description: s.message || s.check_id,
+        categories: ['Security'],
+        severity: sev,
+        fingerprint: fp,
+        location: {
+          path: relPath,
+          positions: { begin: { line: s.start || 1, column: 1 } },
+        },
+      });
+    }
+    // Append Gitleaks findings as CodeClimate issues (category Security)
+    for (const l of gitleaksFindings) {
+      const relPath = l.file || 'unknown';
+      const fp = crypto
+        .createHash('md5')
+        .update(`gitleaks:${relPath}:${l.rule}:${l.line}:${l.match}`)
+        .digest('hex');
+      issues.push({
+        type: 'issue',
+        check_name: `gitleaks:${l.rule || 'secret'}`,
+        description: `Potential secret detected`,
+        categories: ['Security'],
+        severity: 'major',
+        fingerprint: fp,
+        location: {
+          path: relPath,
+          positions: { begin: { line: l.line || 1, column: 1 } },
+        },
+      });
+    }
+    fs.writeFileSync(
+      path.join(reportsDir, 'gl-code-quality-report.json'),
+      JSON.stringify(issues, null, 2),
+      'utf8'
+    );
+    console.log('[OK] CodeClimate report generated: gl-code-quality-report.json');
+  } catch (e) {
+    console.warn('[WARN] Failed to write CodeClimate report:', e?.message || e);
+  }
+
+  // ESLint SARIF (with fallback if built-in formatter not available)
+  try {
+    const eslintForFmt = new ESLint({ cwd: tmpCwd });
+    try {
+      const sarifFormatter = await eslintForFmt.loadFormatter('sarif');
+      const sarifStr = sarifFormatter.format(filteredResults);
+      fs.writeFileSync(path.join(reportsDir, 'eslint-sarif.json'), sarifStr, 'utf8');
+      console.log('[OK] SARIF report generated: eslint-sarif.json');
+    } catch (fmtErr) {
+      // Minimal SARIF fallback
+      const rulesMap = new Map();
+      const resultsSarif = [];
+      for (const res of filteredResults) {
+        const relPath = path.relative(process.cwd(), res.filePath);
+        for (const msg of (res.messages || [])) {
+          const ruleId = msg.ruleId || 'eslint';
+          if (!rulesMap.has(ruleId)) {
+            rulesMap.set(ruleId, {
+              id: ruleId,
+              shortDescription: { text: ruleId },
+              helpUri: 'https://eslint.org',
+            });
+          }
+          resultsSarif.push({
+            ruleId,
+            level: msg.severity === 2 ? 'error' : 'warning',
+            message: { text: msg.message || '' },
+            locations: [{
+              physicalLocation: {
+                artifactLocation: { uri: relPath.replace(/\\/g, '/') },
+                region: { startLine: msg.line || 1, startColumn: msg.column || 1 },
+              },
+            }],
+          });
+        }
+      }
+      const sarifDoc = {
+        $schema: 'https://schemastore.azurewebsites.net/schemas/json/sarif-2.1.0.json',
+        version: '2.1.0',
+        runs: [{
+          tool: { driver: { name: 'ESLint', informationUri: 'https://eslint.org', rules: Array.from(rulesMap.values()) } },
+          results: resultsSarif,
+        }],
+      };
+      fs.writeFileSync(path.join(reportsDir, 'eslint-sarif.json'), JSON.stringify(sarifDoc, null, 2), 'utf8');
+      console.log('[OK] SARIF report generated (fallback): eslint-sarif.json');
+    }
+  } catch (e) {
+    console.log('[WARN] SARIF generation skipped:', e?.message || e);
   }
 
   process.exit(exitCode);

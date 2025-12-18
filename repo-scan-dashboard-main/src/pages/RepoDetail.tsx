@@ -1,6 +1,6 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, FileText, Calendar, AlertCircle, Code2, Activity, ListChecks, Bug, TrendingUp, Percent, Clock, GitBranch } from '@/icons';
+import { ArrowLeft, FileText, Calendar, AlertCircle, Code2, GitBranch } from '@/icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -9,8 +9,6 @@ import { AnalysisForm } from '@/components/AnalysisForm';
 import { JobStatusCompact } from '@/components/JobStatusCompact';
 import { toast } from '@/components/ui/sonner';
 import {
-  Pagination,
-  PaginationContent,
   PaginationEllipsis,
   PaginationItem,
   PaginationLink,
@@ -18,6 +16,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { Repository, ReportSummary, AnalysisJob, AnalysisOptions, HistoryEntry } from '@/types';
+import { SettingsDialog, getAnalyzerSettings } from '@/components/SettingsDialog';
 import { API_URL } from '@/lib/config-client';
 import { cn } from '@/lib/utils';
 
@@ -31,21 +30,9 @@ export default function RepoDetail() {
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const pollingCleanupRef = useRef<(() => void) | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  useEffect(() => {
-    if (slug) {
-      fetchRepoData();
-    }
-    
-    return () => {
-      if (pollingCleanupRef.current) {
-        pollingCleanupRef.current();
-        pollingCleanupRef.current = null;
-      }
-    };
-  }, [slug]);
-
-  const fetchRepoData = async () => {
+  const fetchRepoData = useCallback(async () => {
     try {
       const [reposResponse, reportsResponse] = await Promise.all([
         fetch(`${API_URL}/api/repos`),
@@ -66,7 +53,20 @@ export default function RepoDetail() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [slug]);
+
+  useEffect(() => {
+    if (slug) {
+      fetchRepoData();
+    }
+    
+    return () => {
+      if (pollingCleanupRef.current) {
+        pollingCleanupRef.current();
+        pollingCleanupRef.current = null;
+      }
+    };
+  }, [slug, fetchRepoData]);
 
   const historyList: HistoryEntry[] = useMemo(() => {
     if (!reports) return [] as HistoryEntry[];
@@ -125,10 +125,28 @@ export default function RepoDetail() {
 
   const handleAnalyze = async (options: AnalysisOptions) => {
     try {
+      const s = getAnalyzerSettings();
+      const merged: AnalysisOptions = {
+        ...options,
+        forceEslintConfig: s.forceEslintConfig,
+        enableSemgrep: s.enableSemgrep,
+        enableGitleaks: s.enableGitleaks,
+        enableOsvScanner: s.enableOsvScanner,
+        enableSecretHeuristics: s.enableSecretHeuristics,
+        semgrepConfig: s.semgrepConfig,
+        maxSast: s.maxSast,
+        maxSecrets: s.maxSecrets,
+        maxDepVulns: s.maxDepVulns,
+        lightClone: s.lightClone,
+        reuseClones: s.reuseClones,
+        cloneTimeoutMs: s.cloneTimeoutMs,
+        fetchTimeoutMs: s.fetchTimeoutMs,
+        cmdTimeoutMs: s.cmdTimeoutMs,
+      };
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ repoSlug: slug, options }),
+        body: JSON.stringify({ repoSlug: slug, options: merged }),
       });
 
       if (!response.ok) {
@@ -150,7 +168,7 @@ export default function RepoDetail() {
       if (pollingCleanupRef.current) {
         pollingCleanupRef.current();
       }
-      pollingCleanupRef.current = pollJobStatus(jobId) || null;
+      pollingCleanupRef.current = pollJobStatus(jobId);
     } catch (error) {
       console.error('Error starting analysis:', error);
       toast.error('Error al iniciar análisis', {
@@ -159,7 +177,10 @@ export default function RepoDetail() {
     }
   };
 
-  const pollJobStatus = async (jobId: string) => {
+  const pollJobStatus = (jobId: string) => {
+    let eventSource: EventSource | null = null;
+    let interval: number | undefined;
+
     const fetchJobStatus = async () => {
       try {
         const response = await fetch(`${API_URL}/api/jobs/${jobId}/status`);
@@ -173,67 +194,69 @@ export default function RepoDetail() {
       }
     };
 
-    const initialJob = await fetchJobStatus();
-    if (initialJob && (initialJob.status === 'succeeded' || initialJob.status === 'failed')) {
-      fetchRepoData();
-      return;
-    }
-
-    const eventSource = new EventSource(`${API_URL}/api/jobs/${jobId}/stream`);
-
-    eventSource.addEventListener('message', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'status') {
-          setCurrentJob(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              status: data.data,
-            };
-          });
-          
-          if (data.data === 'succeeded' || data.data === 'failed') {
-            eventSource.close();
-            fetchJobStatus().then(() => fetchRepoData());
-          }
-        } else if (data.type === 'log') {
-          setCurrentJob(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              logs: [...prev.logs, data.data],
-            };
-          });
-        }
-      } catch (error) {
-        console.error('Error parsing SSE message:', error);
+    const start = async () => {
+      const initialJob = await fetchJobStatus();
+      if (initialJob && (initialJob.status === 'succeeded' || initialJob.status === 'failed')) {
+        fetchRepoData();
+        return;
       }
-    });
 
-    eventSource.onerror = (error) => {
-      console.error('EventSource error:', error);
-      eventSource.close();
+      eventSource = new EventSource(`${API_URL}/api/jobs/${jobId}/stream`);
+
+      eventSource.addEventListener('message', (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'job') {
+            setCurrentJob(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                status: data.data?.status ?? prev.status,
+                progress: typeof data.data?.progress === 'number' ? data.data.progress : prev.progress,
+                phase: data.data?.phase ?? prev.phase,
+              };
+            });
+            if (data.data?.status === 'succeeded' || data.data?.status === 'failed') {
+              eventSource?.close();
+              fetchJobStatus().then(() => fetchRepoData());
+            }
+          } else if (data.type === 'log') {
+            setCurrentJob(prev => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                logs: [...prev.logs, data.data],
+              };
+            });
+          }
+        } catch (error) {
+          console.error('Error parsing SSE message:', error);
+        }
+      });
+
+      eventSource.onerror = (error) => {
+        console.error('EventSource error:', error);
+        eventSource?.close();
+      };
+
+      interval = window.setInterval(async () => {
+        const job = await fetchJobStatus();
+        if (job && (job.status === 'succeeded' || job.status === 'failed')) {
+          if (interval) clearInterval(interval);
+          eventSource?.close();
+          fetchRepoData();
+          pollingCleanupRef.current = null;
+        }
+      }, 2000);
     };
 
-    const interval = setInterval(async () => {
-      const job = await fetchJobStatus();
-      if (job && (job.status === 'succeeded' || job.status === 'failed')) {
-        clearInterval(interval);
-        if (eventSource.readyState !== EventSource.CLOSED) {
-          eventSource.close();
-        }
-        fetchRepoData();
-        pollingCleanupRef.current = null;
-      }
-    }, 2000);
+    // start polling without blocking the caller
+    start();
 
     return () => {
-      clearInterval(interval);
-      if (eventSource.readyState !== EventSource.CLOSED) {
-        eventSource.close();
-      }
+      if (interval) clearInterval(interval);
+      eventSource?.close();
     };
   };
 
@@ -273,9 +296,9 @@ export default function RepoDetail() {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b border-border bg-card/30">
-        <div className="container mx-auto px-6 py-5">
-          <div className="flex items-center gap-4">
+      <header className="relative border-b border-border/50 bg-card/50 backdrop-blur-sm">
+        <div className="container mx-auto px-6 py-8">
+          <div className="flex items-center gap-3 mb-3">
             <Link to="/">
               <Button
                 variant="ghost"
@@ -287,11 +310,13 @@ export default function RepoDetail() {
               </Button>
             </Link>
             <div className="p-2 rounded-lg bg-primary/10">
-              <Code2 className="h-5 w-5 text-primary" />
+              <Code2 className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold">{repo.name}</h1>
-              <p className="text-sm text-muted-foreground">{repo.description || 'Sin descripción'}</p>
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                {repo.name}
+              </h1>
+              <p className="text-muted-foreground mt-1.5">{repo.description || 'Sin descripción'}</p>
             </div>
           </div>
         </div>
@@ -302,7 +327,7 @@ export default function RepoDetail() {
           {/* Fila principal: Configuración + Resultados (igual altura) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 items-stretch min-h-0">
           <div className="lg:col-span-1 min-h-0">
-            <Card className="border-border/50 h-auto lg:h-[85vh] flex flex-col overflow-hidden">
+            <Card className="border-border/50 h-auto lg:h-[71vh] flex flex-col overflow-hidden">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg">Configuración</CardTitle>
                 <CardDescription className="text-xs">Configura y ejecuta un análisis</CardDescription>
@@ -319,11 +344,16 @@ export default function RepoDetail() {
             </div>
 
             <div className="lg:col-span-2 min-h-0">
-              <Card className="border-border/50 h-auto lg:h-[85vh] flex flex-col overflow-hidden">
-                <CardHeader className="pb-4">
+              <Card className="border-border/50 h-auto lg:h-[71vh] flex flex-col overflow-hidden">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between gap-2">
+                <div>
                   <CardTitle className="text-lg">Resultados del Repositorio</CardTitle>
                   <CardDescription className="text-xs">KPIs y análisis ejecutados</CardDescription>
-                </CardHeader>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setSettingsOpen(true)}>Ajustes</Button>
+              </div>
+            </CardHeader>
                 <CardContent className="flex-1 flex flex-col min-h-0 lg:overflow-hidden">
                   {/* KPIs compactos */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4">
@@ -417,15 +447,15 @@ export default function RepoDetail() {
                                   })}</span>
                                   {run.metrics && (
                                     <>
-                                      {errors > 0 && (
-                                        <span className="text-destructive">E: {errors}</span>
-                                      )}
-                                      {warnings > 0 && (
-                                        <span className="text-warning">W: {warnings}</span>
-                                      )}
-                                      {secCount > 0 && (
-                                        <span className="text-accent-foreground">S: {secCount}</span>
-                                      )}
+                                      <span className={cn(errors > 0 ? 'text-destructive' : 'text-muted-foreground')}>
+                                        E: {errors}
+                                      </span>
+                                      <span className={cn(warnings > 0 ? 'text-warning' : 'text-muted-foreground')}>
+                                        W: {warnings}
+                                      </span>
+                                      <span className={cn(secCount > 0 ? 'text-blue-400' : 'text-muted-foreground')}>
+                                        S: {secCount}
+                                      </span>
                                       {typeof delta === 'number' && (
                                         <span className={cn(delta > 0 && 'text-destructive', delta < 0 && 'text-green-500')}>
                                           Δ: {delta > 0 ? `+${delta}` : delta}
@@ -436,17 +466,27 @@ export default function RepoDetail() {
                                 </div>
                               </div>
                             </div>
-                            <a
-                              href={`${API_URL}/api/repos/${slug}/reports/${encodeURIComponent(run.id)}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="sm:ml-4 w-full sm:w-auto"
-                            >
-                              <Button size="sm" variant="outline" className="gap-2 w-full sm:w-auto">
-                                <FileText className="h-4 w-4" />
-                                Ver
-                              </Button>
-                            </a>
+                            <div className="flex items-center gap-2 w-full sm:w-auto sm:ml-4">
+                              <a
+                                href={`${API_URL}/api/repos/${slug}/reports/${encodeURIComponent(run.id)}/logs`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full sm:w-auto"
+                              >
+                                <Button size="sm" variant="outline" className="w-full sm:w-auto">Logs</Button>
+                              </a>
+                              <a
+                                href={`${API_URL}/api/repos/${slug}/reports/${encodeURIComponent(run.id)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full sm:w-auto"
+                              >
+                                <Button size="sm" variant="outline" className="gap-2 w-full sm:w-auto">
+                                  <FileText className="h-4 w-4" />
+                                  Ver
+                                </Button>
+                              </a>
+                            </div>
                           </div>
                         );
                       })}
@@ -454,7 +494,7 @@ export default function RepoDetail() {
 
                         {totalPages > 1 && (
                           <div className="pt-3 border-t border-border/50">
-                            <div className="flex items-center justify-between w-full flex-wrap gap-2">
+                            <div className="flex items-center w-full gap-2">
                               <PaginationPrevious
                                 href="#"
                                 onClick={(e) => {
@@ -464,36 +504,48 @@ export default function RepoDetail() {
                                 className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
                               />
 
-                              <div className="inline-flex items-center gap-1 overflow-x-auto max-w-full">
-                                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                                  if (
-                                    page === 1 ||
-                                    page === totalPages ||
-                                    (page >= currentPage - 1 && page <= currentPage + 1)
-                                  ) {
-                                    return (
-                                      <PaginationItem key={page}>
-                                        <PaginationLink
-                                          href="#"
-                                          onClick={(e) => {
-                                            e.preventDefault();
-                                            setCurrentPage(page);
-                                          }}
-                                          isActive={currentPage === page}
-                                        >
-                                          {page}
-                                        </PaginationLink>
-                                      </PaginationItem>
-                                    );
-                                  } else if (page === currentPage - 2 || page === currentPage + 2) {
-                                    return (
-                                      <PaginationItem key={page}>
-                                        <PaginationEllipsis />
-                                      </PaginationItem>
-                                    );
-                                  }
-                                  return null;
-                                })}
+                              <div className="flex-1 flex items-center justify-center overflow-x-auto">
+                                <div className="inline-flex items-center gap-1">
+                                  {(() => {
+                                    const getFixedPageSlots = (total: number, current: number): Array<number | 'ellipsis' | 'spacer'> => {
+                                      if (total <= 5) {
+                                        const nums = Array.from({ length: total }, (_, i) => i + 1);
+                                        const spacers = Array.from({ length: 5 - total }, () => 'spacer' as const);
+                                        return [...nums, ...spacers];
+                                      }
+                                      if (current <= 3) return [1, 2, 3, 'ellipsis', total];
+                                      if (current >= total - 2) return [1, 'ellipsis', total - 2, total - 1, total];
+                                      return [1, 'ellipsis', current, 'ellipsis', total];
+                                    };
+                                    return getFixedPageSlots(totalPages, currentPage).map((slot, idx) => {
+                                      if (slot === 'ellipsis') {
+                                        return (
+                                          <PaginationItem key={`ellipsis-${idx}`}>
+                                            <PaginationEllipsis />
+                                          </PaginationItem>
+                                        );
+                                      }
+                                      if (slot === 'spacer') {
+                                        return <span key={`spacer-${idx}`} className="w-9 h-9" />;
+                                      }
+                                      const page = slot as number;
+                                      return (
+                                        <PaginationItem key={`page-${page}`}>
+                                          <PaginationLink
+                                            href="#"
+                                            onClick={(e) => {
+                                              e.preventDefault();
+                                              setCurrentPage(page);
+                                            }}
+                                            isActive={currentPage === page}
+                                          >
+                                            {page}
+                                          </PaginationLink>
+                                        </PaginationItem>
+                                      );
+                                    });
+                                  })()}
+                                </div>
                               </div>
 
                               <PaginationNext
@@ -539,6 +591,7 @@ export default function RepoDetail() {
               </Card>
             </div>
           )}
+          <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
         </div>
       </main>
     </div>

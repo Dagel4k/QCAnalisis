@@ -7,9 +7,11 @@ import { cn } from '@/lib/utils';
 
 interface RepoCardProps {
   repo: RepositoryWithStatus;
+  onEdit?: (repo: RepositoryWithStatus) => void;
+  onDelete?: (repo: RepositoryWithStatus) => void;
 }
 
-export function RepoCard({ repo }: RepoCardProps) {
+export function RepoCard({ repo, onEdit, onDelete }: RepoCardProps) {
   const statusConfig = {
     succeeded: { 
       icon: CheckCircle2, 
@@ -88,7 +90,25 @@ export function RepoCard({ repo }: RepoCardProps) {
                 <span className="text-sm text-muted-foreground">
                   {repo.lastAnalysis.branchCount} {repo.lastAnalysis.branchCount === 1 ? 'rama analizada' : 'ramas analizadas'}
                 </span>
-                <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                <div className="flex items-center gap-2">
+                  {onEdit && (
+                    <button
+                      className="text-xs px-2 py-1 rounded-md border border-border/60 hover:bg-muted/50"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(repo); }}
+                    >
+                      Editar
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      className="text-xs px-2 py-1 rounded-md border border-destructive/40 text-destructive hover:bg-destructive/10"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(repo); }}
+                    >
+                      Eliminar
+                    </button>
+                  )}
+                  <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                </div>
               </div>
             </div>
           ) : (
@@ -97,7 +117,25 @@ export function RepoCard({ repo }: RepoCardProps) {
                 <Clock className="h-4 w-4" />
                 <span>Sin análisis previos</span>
               </div>
-              <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+              <div className="flex items-center gap-2">
+                {onEdit && (
+                  <button
+                    className="text-xs px-2 py-1 rounded-md border border-border/60 hover:bg-muted/50"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onEdit(repo); }}
+                  >
+                    Editar
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    className="text-xs px-2 py-1 rounded-md border border-destructive/40 text-destructive hover:bg-destructive/10"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(repo); }}
+                  >
+                    Eliminar
+                  </button>
+                )}
+                <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-1 transition-all" />
+              </div>
             </div>
           )}
         </CardContent>

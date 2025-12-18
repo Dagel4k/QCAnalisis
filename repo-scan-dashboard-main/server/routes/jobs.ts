@@ -1,5 +1,7 @@
 import { Router } from 'express';
-import { jobManager } from '../../src/lib/jobs';
+import { jobManager } from '../../src/lib/jobs.js';
+import { cancelAnalysis } from '../../src/lib/analyzer.js';
+import type { AnalysisJob } from '../../src/types/index.js';
 
 export const jobsRouter = Router();
 
@@ -35,9 +37,9 @@ jobsRouter.get('/:id/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   
   // Send existing logs
-  job.logs.forEach(log => {
+  for (const log of job.logs) {
     res.write(`data: ${JSON.stringify({ type: 'log', data: log })}\n\n`);
-  });
+  }
   
   // Listen for new logs
   const logHandler = ({ id: jobId, log }: { id: string; log: string }) => {
@@ -46,9 +48,14 @@ jobsRouter.get('/:id/stream', (req, res) => {
     }
   };
   
-  const updateHandler = (updatedJob: any) => {
+  const updateHandler = (updatedJob: AnalysisJob) => {
     if (updatedJob.id === id) {
-      res.write(`data: ${JSON.stringify({ type: 'status', data: updatedJob.status })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'job', data: {
+        id: updatedJob.id,
+        status: updatedJob.status,
+        progress: updatedJob.progress ?? null,
+        phase: updatedJob.phase ?? null,
+      } })}\n\n`);
       
       // Close stream when job is finished
       if (updatedJob.status === 'succeeded' || updatedJob.status === 'failed') {
@@ -66,6 +73,18 @@ jobsRouter.get('/:id/stream', (req, res) => {
     jobManager.off('job:updated', updateHandler);
     res.end();
   });
+});
+
+// POST /api/jobs/:id/cancel - cancel a running job
+jobsRouter.post('/:id/cancel', (req, res) => {
+  const { id } = req.params;
+  const job = jobManager.getJob(id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (job.status !== 'running') return res.status(409).json({ error: 'Job is not running' });
+
+  const ok = cancelAnalysis(id);
+  if (!ok) return res.status(500).json({ error: 'Failed to cancel job' });
+  return res.json({ ok: true });
 });
 
 // GET /api/jobs/repo/:slug - Get all jobs for a repo

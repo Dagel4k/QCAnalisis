@@ -23,7 +23,9 @@ function loadEnvFromFile(filePath: string | undefined) {
         process.env[key] = val;
       }
     });
-  } catch {}
+  } catch {
+    // Suppress error
+  }
 }
 
 function getCurrentDir(): string {
@@ -31,12 +33,16 @@ function getCurrentDir(): string {
     if (import.meta.url) {
       return path.dirname(fileURLToPath(import.meta.url));
     }
-  } catch {}
+  } catch {
+    // Suppress error
+  }
   try {
     if (typeof __dirname !== 'undefined') {
       return __dirname;
     }
-  } catch {}
+  } catch {
+    // Suppress error
+  }
   return process.cwd();
 }
 
@@ -95,6 +101,9 @@ function resolveScriptPath(envVar: string, defaultPath: string): string {
 export const config = {
   gitlabBase: process.env.GITLAB_BASE || '',
   gitlabToken: process.env.GITLAB_TOKEN || process.env.GITLAB_PRIVATE_TOKEN || '',
+  publicBaseUrl:
+    (process.env.PUBLIC_BASE_URL || '').trim() ||
+    (process.env.PORT ? `http://localhost:${process.env.PORT}` : 'http://localhost:3001'),
   reviewScriptPath: resolveScriptPath(
     process.env.REVIEW_SCRIPT_PATH || '',
     'bin/review-gitlab-branches.js'

@@ -1,6 +1,5 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, MoreHorizontal } from "@/icons";
-
 import { cn } from "@/lib/utils";
 import { ButtonProps, buttonVariants } from "@/components/ui/button";
 
@@ -22,7 +21,12 @@ const PaginationContent = React.forwardRef<HTMLUListElement, React.ComponentProp
 PaginationContent.displayName = "PaginationContent";
 
 const PaginationItem = React.forwardRef<HTMLLIElement, React.ComponentProps<"li">>(({ className, ...props }, ref) => (
-  <li ref={ref} className={cn("", className)} {...props} />
+  <li 
+    ref={ref} 
+    // Agregamos 'list-none' y forzamos a que no haya contenido 'before'
+    className={cn("list-none before:content-none", className)} 
+    {...props} 
+  />
 ));
 PaginationItem.displayName = "PaginationItem";
 
@@ -50,7 +54,7 @@ const PaginationPrevious = ({ className, ...props }: React.ComponentProps<typeof
   <PaginationLink
     aria-label="Go to previous page"
     size="default"
-    className={cn("gap-2 w-[112px] justify-center", className)}
+    className={cn("gap-2 w-[112px] justify-center shrink-0", className)}
     {...props}
   >
     <ChevronLeft className="h-4 w-4" />
@@ -63,7 +67,7 @@ const PaginationNext = ({ className, ...props }: React.ComponentProps<typeof Pag
   <PaginationLink
     aria-label="Go to next page"
     size="default"
-    className={cn("gap-2 w-[112px] justify-center", className)}
+    className={cn("gap-2 w-[112px] justify-center shrink-0", className)}
     {...props}
   >
     <span>Siguiente</span>

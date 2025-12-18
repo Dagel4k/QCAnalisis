@@ -5,6 +5,7 @@ export {
   FileText,
   Calendar,
   AlertCircle,
+  HelpCircle,
   Activity,
   ListChecks,
   Bug,

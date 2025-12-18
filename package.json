@@ -15,8 +15,7 @@
     "dev-tools:pack": "cd packages/dev-tools && npm pack"
   },
   "devDependencies": {
-    "@scriptc/dev-tools": "file:packages/dev-tools/scriptc-dev-tools-0.1.0.tgz",
-    
+    "@scriptc/dev-tools": "file:packages/dev-tools/scriptc-dev-tools-0.1.0.tgz"
   },
   "keywords": [
     "eslint",

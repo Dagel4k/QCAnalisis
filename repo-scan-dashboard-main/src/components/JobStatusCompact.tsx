@@ -26,21 +26,19 @@ interface JobStatusCompactProps {
 }
 
 export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: JobStatusCompactProps) {
-  const [progress, setProgress] = useState(0);
+  const [progressLocal, setProgressLocal] = useState(0);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [canceling, setCanceling] = useState(false);
 
   useEffect(() => {
-    if (job.status === 'running') {
-      const interval = setInterval(() => {
-        setProgress(prev => Math.min(prev + 2, 90));
-      }, 1000);
-      return () => clearInterval(interval);
+    if (typeof job.progress === 'number') {
+      setProgressLocal(Math.max(0, Math.min(100, job.progress)));
     } else if (job.status === 'succeeded') {
-      setProgress(100);
-    } else if (job.status === 'failed') {
-      setProgress(0);
+      setProgressLocal(100);
+    } else if (job.status !== 'running') {
+      setProgressLocal(0);
     }
-  }, [job.status]);
+  }, [job.status, job.progress]);
 
   const statusConfig = {
     queued: {
@@ -73,6 +71,8 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
   const Icon = config.icon;
   const errorLogs = job.logs.filter(log => log.includes('[ERROR]'));
   const hasErrors = errorLogs.length > 0;
+  const showSuccessActions = job.status === 'succeeded' && !!latestReportId && !!repoSlug;
+  const showLogsDialog = job.logs.length > 0 && !showSuccessActions;
 
   return (
     <>
@@ -89,19 +89,21 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
             <Icon className={cn("h-3.5 w-3.5", job.status === 'running' && 'animate-spin')} />
             {config.label}
           </Badge>
-          {(job.status === 'running' || job.status === 'succeeded') && (
-            <div className="flex-1 flex items-center gap-2">
-              <Progress value={progress} className="h-2 bg-muted/50 w-full" />
-              <span className="text-xs tabular-nums text-muted-foreground min-w-[2.5rem] text-right">{Math.round(progress)}%</span>
-            </div>
-          )}
-          {hasErrors && (
-            <span className="text-xs text-destructive font-medium ml-auto">
-              {errorLogs.length} error{errorLogs.length !== 1 ? 'es' : ''}
-            </span>
-          )}
+          <div className="flex-1 flex items-center gap-2">
+            {(job.status === 'running' || job.status === 'succeeded') && (
+              <>
+                <Progress value={progressLocal} className="h-2 bg-muted/50 w-full" />
+                <span className="text-xs tabular-nums text-muted-foreground min-w-[2.5rem] text-right">{Math.round(progressLocal)}%</span>
+              </>
+            )}
+            {hasErrors && (
+              <span className="text-xs text-destructive font-medium">
+                {errorLogs.length} error{errorLogs.length !== 1 ? 'es' : ''}
+              </span>
+            )}
+          </div>
 
-          {job.logs.length > 0 && (
+          {showLogsDialog && (
           <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-2 h-8 text-xs">
@@ -146,21 +148,50 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
               )}
             </DialogContent>
           </Dialog>
-        )}
-        </div>
+          )}
 
-        {/* Botón para ver reporte cuando termina */}
-        {job.status === 'succeeded' && latestReportId && repoSlug && (
-          <div className="mt-3 flex justify-end">
-            <a
-              href={`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId)}`}
-              target="_blank"
-              rel="noopener noreferrer"
+          {showSuccessActions && (
+            <div className="flex items-center gap-2">
+              <a
+                href={`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId!)}/logs`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button size="sm" variant="outline">Logs</Button>
+              </a>
+              <a
+                href={`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId!)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button size="sm" variant="outline">Ver reporte</Button>
+              </a>
+            </div>
+          )}
+
+          {(job.status === 'running' || job.status === 'queued') && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={async () => {
+                if (canceling) return;
+                setCanceling(true);
+                try {
+                  await fetch(`${API_URL}/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                } catch (e) {
+                  // eslint-disable-next-line no-console
+                  console.error('Error al cancelar el job:', e);
+                } finally {
+                  setCanceling(false);
+                }
+              }}
+              disabled={canceling}
             >
-              <Button size="sm" variant="outline">Ver reporte</Button>
-            </a>
-          </div>
-        )}
+              {canceling ? 'Cancelando…' : 'Cancelar'}
+            </Button>
+          )}
+        </div>
       </div>
     </>
   );

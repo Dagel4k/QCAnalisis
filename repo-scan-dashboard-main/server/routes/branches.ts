@@ -4,6 +4,15 @@ import { getRepository, config } from '../../src/lib/config';
 
 export const branchesRouter = Router();
 
+// Basic representation of a GitLab branch from the API
+interface GitlabBranch {
+  name: string;
+  default: boolean;
+  merged?: boolean;
+  protected?: boolean;
+  web_url?: string;
+}
+
 function parseProjectPathFromRepoUrl(repoUrl: string): { host: string | undefined; projectPath: string | undefined } {
   try {
     const u = new URL(repoUrl);
@@ -15,13 +24,13 @@ function parseProjectPathFromRepoUrl(repoUrl: string): { host: string | undefine
   }
 }
 
-function gitlabApiGetJson(baseUrl: string, token: string, pathname: string, query: Record<string, any> = {}): Promise<{ json: any }> {
+function gitlabApiGetJson(baseUrl: string, token: string, pathname: string, query: Record<string, string | number | boolean> = {}): Promise<{ json: unknown }> {
   const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
   const pathNoLead = pathname.replace(/^\//, '');
   const urlObj = new URL(base + pathNoLead);
   Object.entries(query).forEach(([k, v]) => {
     if (v !== undefined && v !== null && `${v}`.length) {
-      urlObj.searchParams.set(k, v);
+      urlObj.searchParams.set(k, String(v));
     }
   });
 
@@ -78,7 +87,12 @@ branchesRouter.get('/:slug', async (req, res) => {
       { per_page: 100 }
     );
 
-    const branchList = branches.map((b: any) => ({
+    // Type guard to ensure we have an array of branches
+    if (!Array.isArray(branches)) {
+      throw new Error('La respuesta de la API de GitLab no es un array de ramas');
+    }
+
+    const branchList = branches.map((b: GitlabBranch) => ({
       name: b.name,
       default: b.default || false,
     }));

@@ -13,7 +13,7 @@
     --install-dev "file:../packages/dev-tools/dev-tools-0.1.0.tgz"
 */
 
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -153,18 +153,51 @@ function makeRunId(base) {
 }
 
 function run(cmd, opts = {}) {
-  return execSync(cmd, { stdio: 'inherit', ...opts });
+  const timeout = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : parseInt(process.env.CMD_TIMEOUT_MS || '0', 10) || undefined;
+  const env = opts.env ? { ...process.env, ...opts.env } : process.env;
+  const res = spawnSync('bash', ['-lc', cmd], { stdio: 'inherit', cwd: opts.cwd, env, timeout });
+  if (res.error) throw res.error;
+  if (typeof res.status === 'number' && res.status !== 0) {
+    throw new Error(`Command failed (${res.status}): ${cmd}`);
+  }
+  return res;
 }
 
-function runNode(scriptPath, { cwd, env = {}, args = [] } = {}) {
-  const res = spawnSync(process.execPath, [scriptPath, ...args], {
-    cwd,
-    env: { ...process.env, ...env },
-    stdio: 'inherit',
+function runNodeAsync(scriptPath, { cwd, env = {}, args = [], logFile } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [scriptPath, ...args], {
+      cwd,
+      env: { ...process.env, ...env },
+      stdio: 'pipe', // Use pipe to capture output
+    });
+
+    child.stdout.on('data', (data) => {
+      const text = data.toString();
+      console.log(text);
+      if (logFile) {
+        try { fs.appendFileSync(logFile, text.endsWith('\n') ? text : text + '\n'); } catch {}
+      }
+    });
+    child.stderr.on('data', (data) => {
+      const text = data.toString();
+      console.error(text);
+      if (logFile) {
+        try { fs.appendFileSync(logFile, `[ERROR] ${text.endsWith('\n') ? text : text + '\n'}`); } catch {}
+      }
+    });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Fallo al ejecutar: node ${scriptPath} (código ${code})`));
+      }
+    });
+
+    child.on('error', (err) => {
+      reject(new Error(`Fallo al iniciar el script: node ${scriptPath}`, { cause: err }));
+    });
   });
-  if (res.status !== 0) {
-    throw new Error(`Fallo al ejecutar: node ${scriptPath}`);
-  }
 }
 
 // ---------- GitLab helpers ----------
@@ -381,18 +414,59 @@ async function main() {
     const runId = makeRunId(baseName);
     const taskReportsDir = path.join(opts.reportsDir, runId);
     if (!fs.existsSync(taskReportsDir)) fs.mkdirSync(taskReportsDir, { recursive: true });
+    const logFile = path.join(taskReportsDir, 'analysis.log');
+    const appendLog = (msg, isError = false) => {
+      const line = `${isError ? '[ERROR] ' : ''}${msg}`;
+      try { fs.appendFileSync(logFile, line.endsWith('\n') ? line : line + '\n'); } catch {}
+      if (isError) console.error(msg); else console.log(msg);
+    };
 
     const branchName = task.type === 'mr' ? task.sourceBranch : task.branch;
 
     try {
-      console.log(`\n==== Clonando ${task.repoUrl} @ ${branchName} (${task.slug}) ====`);
+      appendLog(`\n==== Clonando ${task.repoUrl} @ ${branchName} (${task.slug}) ====`);
+      const reuseClones = process.env.REUSE_CLONES === '1';
       if (fs.existsSync(cloneDir)) {
-        console.log(`Directorio ya existe, eliminando: ${cloneDir}`);
-        fs.rmSync(cloneDir, { recursive: true, force: true });
+        if (reuseClones) {
+          appendLog(`Reusando clone existente en: ${cloneDir}`);
+          try {
+            run(`git -C ${cloneDir} remote set-url origin ${cloneUrl}`);
+            run(`git -C ${cloneDir} fetch --prune origin`, { timeoutMs: parseInt(process.env.FETCH_TIMEOUT_MS || '120000', 10) });
+            // Asegurar ref y reset
+            const refCheck = spawnSync('bash', ['-lc', `git -C ${cloneDir} rev-parse --verify origin/${branchName}`], { encoding: 'utf8' });
+            if (refCheck.status !== 0) throw new Error(`No existe origin/${branchName} en el clone`);
+            run(`git -C ${cloneDir} reset --hard origin/${branchName}`);
+            run(`git -C ${cloneDir} clean -fdx`);
+          } catch (e) {
+            appendLog(`Fallo al reusar clone, recreando: ${e?.message || e}`, true);
+            fs.rmSync(cloneDir, { recursive: true, force: true });
+          }
+        } else {
+          appendLog(`Directorio ya existe, eliminando: ${cloneDir}`);
+          fs.rmSync(cloneDir, { recursive: true, force: true });
+        }
       }
 
       // Shallow clone branch (silencioso para evitar falsos "ERROR" por salida en stderr)
-      run(`git clone --quiet --depth ${opts.depth} --branch ${branchName} --single-branch ${task.repoUrl} ${cloneDir}`);
+      // Evitar cuelgues por prompts interactivos de credenciales
+      // Si hay token de GitLab y la URL es HTTPS, usar auth embebida oauth2:<token>
+      let cloneUrl = task.repoUrl;
+      try {
+        if (opts.gitlabToken && /^https?:/i.test(task.repoUrl)) {
+          const u = new URL(task.repoUrl);
+          u.username = 'oauth2';
+          u.password = opts.gitlabToken;
+          cloneUrl = u.toString();
+        }
+      } catch {}
+      appendLog(`git clone --depth ${opts.depth} --branch ${branchName} --single-branch ${cloneUrl} ${cloneDir}`);
+      if (!fs.existsSync(cloneDir)) {
+        const cloneExtra = process.env.SPARSE_CHECKOUT === '1' || process.env.GIT_FILTER_BLOB_NONE === '1' ? '--filter=blob:none' : '';
+        run(
+          `git clone --quiet ${cloneExtra} --depth ${opts.depth} --branch ${branchName} --single-branch ${cloneUrl} ${cloneDir}`,
+          { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, timeoutMs: parseInt(process.env.CLONE_TIMEOUT_MS || '300000', 10) }
+        );
+      }
 
       // Opcional: instalar meta dev dependency (para ESLint, ts-prune, jscpd, etc.)
       if (opts.installDev && process.env.ANALYZE_OFFLINE_MODE !== 'true') {
@@ -464,21 +538,22 @@ async function main() {
       // Generar .eslintrc.js (si no existe)
       const eslintConfigPath = path.join(cloneDir, '.eslintrc.js');
       if (!fs.existsSync(eslintConfigPath)) {
-        console.log('Generando .eslintrc.js en el repo clonado...');
-        runNode(path.join(rootDir, 'scripts', 'generate-eslintrc.js'), {
+        appendLog('Generando .eslintrc.js en el repo clonado...');
+        await runNodeAsync(path.join(rootDir, 'scripts', 'generate-eslintrc.js'), {
           cwd: cloneDir,
-          args: ['--preset', 'typescript-default']
+          args: ['--preset', 'typescript-default'],
+          logFile,
         });
       } else {
-        console.log('.eslintrc.js ya existe; se usará tal cual.');
+        appendLog('.eslintrc.js ya existe; se usará tal cual.');
       }
 
       // Opcional: si es MR y se pidió sólo archivos cambiados, calcular lista
       let overrideGlobs = undefined;
       if (opts.onlyChanged && task.type === 'mr' && task.targetBranch) {
         try {
-          console.log(`Calculando archivos cambiados vs ${task.targetBranch}...`);
-          run(`git fetch --quiet origin ${task.targetBranch} --depth 1`, { cwd: cloneDir });
+          appendLog(`Calculando archivos cambiados vs ${task.targetBranch}...`);
+          run(`git fetch --quiet origin ${task.targetBranch} --depth 1`, { cwd: cloneDir, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, timeoutMs: parseInt(process.env.FETCH_TIMEOUT_MS || '120000', 10) });
           const { spawnSync } = require('child_process');
           const diffRes = spawnSync('git', ['diff', '--name-only', `origin/${task.targetBranch}...HEAD`], { cwd: cloneDir, encoding: 'utf-8' });
           if (diffRes.status === 0) {
@@ -487,32 +562,33 @@ async function main() {
             const filtered = files.filter(f => /\.(ts|tsx|js|jsx)$/i.test(f));
             if (filtered.length > 0) {
               overrideGlobs = filtered.join(',');
-              console.log(`Analizando sólo ${filtered.length} archivo(s) cambiado(s).`);
+              appendLog(`Analizando sólo ${filtered.length} archivo(s) cambiado(s).`);
             } else {
-              console.log('No se detectaron archivos de código cambiados; se analizará con globs por defecto.');
+              appendLog('No se detectaron archivos de código cambiados; se analizará con globs por defecto.');
             }
           } else {
-            console.warn('git diff no pudo calcular cambios; se usarán globs por defecto.');
+            appendLog('git diff no pudo calcular cambios; se usarán globs por defecto.', true);
           }
         } catch (e) {
-          console.warn('No se pudo calcular archivos cambiados:', e?.message || e);
+          appendLog(`No se pudo calcular archivos cambiados: ${e?.message || e}`, true);
         }
       }
 
       // Ejecutar el generador de reporte HTML, asegurando que pueda resolver dependencias del clone
-      console.log('Ejecutando reporte ESLint + extras...');
+      appendLog('Ejecutando reporte ESLint + extras...');
       const nodePath = extraPaths.join(path.delimiter);
       const ignoreArgs = opts.ignore.length ? ['--ignore', opts.ignore.join(',')] : [];
       const globsValue = overrideGlobs || opts.globs;
       const globArgs = globsValue ? ['--globs', globsValue] : [];
       try {
-        runNode(reportScript, {
+        await runNodeAsync(reportScript, {
           cwd: cloneDir,
           env: { NODE_PATH: nodePath, REPORT_USE_INTERNAL_ESLINT_CONFIG: opts.forceEslintConfig ? '1' : '' },
           args: [...ignoreArgs, ...globArgs],
+          logFile,
         });
       } catch (e) {
-        console.warn('Generación de reporte finalizó con código distinto de 0 (continuando):', e?.message || e);
+        appendLog(`Generación de reporte finalizó con error (continuando): ${e?.message || e}`, true);
       }
 
       // Copiar reporte a carpeta central
@@ -520,7 +596,7 @@ async function main() {
       if (fs.existsSync(sourceReport)) {
         const targetReport = path.join(taskReportsDir, 'lint-report.html');
         fs.copyFileSync(sourceReport, targetReport);
-        console.log(`Reporte copiado: ${targetReport}`);
+        appendLog(`Reporte copiado: ${targetReport}`);
         // Copiar resumen JSON si existe
         const sourceSummaryJson = path.join(cloneDir, 'reports', 'lint-summary.json');
         let metrics = undefined;
@@ -556,19 +632,19 @@ async function main() {
           summary.branches.push({ branch: task.branch, report: path.relative(rootDir, targetReport) });
         }
       } else {
-        console.warn('No se encontró lint-report.html en el clone.');
+        appendLog('No se encontró lint-report.html en el clone.', true);
       }
 
     } catch (err) {
-      console.error(`Error con la tarea ${task.slug}:`, err.message);
+      appendLog(`Error con la tarea ${task.slug}: ${err.message}`, true);
       if (task.type === 'mr') summary.mrs.push({ iid: task.iid, error: err.message });
       else summary.branches.push({ branch: task.branch, error: err.message });
     } finally {
       if (opts.cleanup) {
-        console.log('Limpiando clone...');
+        appendLog('Limpiando clone...');
         try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch {}
       } else {
-        console.log(`Conservado clone en: ${cloneDir}`);
+        appendLog(`Conservado clone en: ${cloneDir}`);
       }
     }
   }

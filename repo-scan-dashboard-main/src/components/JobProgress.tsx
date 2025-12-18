@@ -8,26 +8,18 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { CheckCircle2, XCircle, Loader2, Clock, AlertCircle } from '@/icons';
 import { AnalysisJob } from '@/types';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { API_URL } from '@/lib/config-client';
 
 interface JobProgressProps {
   job: AnalysisJob;
 }
 
 export function JobProgress({ job }: JobProgressProps) {
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (job.status === 'running') {
-      const interval = setInterval(() => {
-        setProgress(prev => Math.min(prev + 2, 90));
-      }, 1000);
-      return () => clearInterval(interval);
-    } else if (job.status === 'succeeded') {
-      setProgress(100);
-    } else if (job.status === 'failed') {
-      setProgress(0);
-    }
-  }, [job.status]);
+  const progress = typeof job.progress === 'number'
+    ? Math.max(0, Math.min(100, job.progress))
+    : (job.status === 'succeeded' ? 100 : (job.status === 'running' ? 50 : 0));
+  const [canceling, setCanceling] = useState(false);
 
   const statusConfig = {
     queued: {
@@ -65,8 +57,9 @@ export function JobProgress({ job }: JobProgressProps) {
   return (
     <Card className="mt-4 bg-card/50 backdrop-blur-sm border-border/50 shadow-lg">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base font-semibold">Progreso del Análisis</CardTitle>
+          <div className="flex items-center gap-2">
           <Badge 
             variant={config.variant} 
             className={cn(
@@ -78,6 +71,29 @@ export function JobProgress({ job }: JobProgressProps) {
             <Icon className={cn("h-3.5 w-3.5", job.status === 'running' && 'animate-spin')} />
             {config.label}
           </Badge>
+          {(job.status === 'running' || job.status === 'queued') && (
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-7 text-xs"
+              disabled={canceling}
+              onClick={async () => {
+                if (canceling) return;
+                setCanceling(true);
+                try {
+                  await fetch(`${API_URL}/api/jobs/${job.id}/cancel`, { method: 'POST' });
+                } catch (e) {
+                  // eslint-disable-next-line no-console
+                  console.error('Error al cancelar el job:', e);
+                } finally {
+                  setCanceling(false);
+                }
+              }}
+            >
+              {canceling ? 'Cancelando…' : 'Cancelar'}
+            </Button>
+          )}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { getRepository } from '../../src/lib/config';
-import { jobManager } from '../../src/lib/jobs';
-import { runAnalysis } from '../../src/lib/analyzer';
-import { AnalysisOptions } from '../../src/types';
+import { getRepository } from '../../src/lib/config.js';
+import { jobManager } from '../../src/lib/jobs.js';
+import { runAnalysis } from '../../src/lib/analyzer.js';
+import type { AnalysisOptions } from '../../src/types/index.js';
 
 export const analyzeRouter = Router();
 
@@ -28,7 +28,7 @@ analyzeRouter.post('/', async (req, res) => {
 
     // Create job
     const jobId = uuidv4();
-    const job = jobManager.createJob({
+    jobManager.createJob({
       id: jobId,
       repoSlug,
       status: 'queued',
@@ -38,7 +38,7 @@ analyzeRouter.post('/', async (req, res) => {
     });
 
     // Start analysis in background
-    runAnalysis(jobId, repoSlug, repo.repoUrl, options).catch(error => {
+    runAnalysis(jobId, repoSlug, repo.repoUrl, options).catch((error: unknown) => {
       console.error('Analysis error:', error);
     });
 
