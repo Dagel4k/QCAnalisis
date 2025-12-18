@@ -24,7 +24,7 @@ interface Branch {
 }
 
 export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: AnalysisFormProps) {
-  const [mode, setMode] = useState<'mrs' | 'branches' | 'specific'>('mrs');
+  const [mode, setMode] = useState<'mrs' | 'mrs-specific' | 'branches' | 'specific'>('mrs');
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
@@ -33,6 +33,10 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
   const [mrState, setMrState] = useState<'opened' | 'merged' | 'closed'>('opened');
   const [mrTargetBranch, setMrTargetBranch] = useState('');
   const [mrLabels, setMrLabels] = useState('');
+  const [mrs, setMrs] = useState<Array<{ iid: number; title: string; sourceBranch: string; targetBranch: string; webUrl?: string }>>([]);
+  const [mrsLoading, setMrsLoading] = useState(false);
+  const [mrSearch, setMrSearch] = useState('');
+  const [selectedMrs, setSelectedMrs] = useState<number[]>([]);
   const [ignore, setIgnore] = useState('');
   const [globs, setGlobs] = useState('');
   const [depth, setDepth] = useState('1');
@@ -61,14 +65,37 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
     }
   }, [repoSlug]);
 
+  const fetchMrs = useCallback(async () => {
+    setMrsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/mrs/${repoSlug}?state=${mrState}`);
+      if (response.ok) {
+        const data = await response.json();
+        setMrs(Array.isArray(data.mrs) ? data.mrs : []);
+      }
+    } catch (error) {
+      console.error('Error fetching MRs:', error);
+    } finally {
+      setMrsLoading(false);
+    }
+  }, [repoSlug, mrState]);
+
   useEffect(() => {
     if (mode === 'specific' || mode === 'branches') {
       fetchBranches();
+    } else if (mode === 'mrs-specific') {
+      fetchMrs();
     }
-  }, [mode, fetchBranches]);
+  }, [mode, fetchBranches, fetchMrs]);
 
   const filteredBranches = branches.filter(branch =>
     branch.name.toLowerCase().includes(branchSearch.toLowerCase())
+  );
+  const filteredMrs = mrs.filter(mr =>
+    (mr.title.toLowerCase().includes(mrSearch.toLowerCase())) ||
+    (mr.sourceBranch.toLowerCase().includes(mrSearch.toLowerCase())) ||
+    (mr.targetBranch.toLowerCase().includes(mrSearch.toLowerCase())) ||
+    (`${mr.iid}`.includes(mrSearch.trim()))
   );
 
   const handleBranchToggle = (branchName: string) => {
@@ -95,11 +122,12 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
       mode,
       ...(mode === 'specific' && selectedBranches.length > 0 && { branches: selectedBranches }),
       ...(mode === 'branches' && branchFilter && { branchFilter }),
-      ...(mode === 'mrs' && {
+      ...((mode === 'mrs' || mode === 'mrs-specific') && {
         mrState,
         ...(mrTargetBranch && { mrTargetBranch }),
         ...(mrLabels && { mrLabels: mrLabels.split(',').map(l => l.trim()) }),
         ...(onlyChanged ? { onlyChanged: true } : {}),
+        ...(mode === 'mrs-specific' && selectedMrs.length > 0 ? { mrsIids: selectedMrs } : {}),
       }),
       ...(ignore && { ignore: ignore.split(',').map(i => i.trim()) }),
       ...(globs && { globs: globs.split(',').map(g => g.trim()) }),
@@ -139,6 +167,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
               <SelectItem value="mrs">Merge Requests</SelectItem>
               <SelectItem value="branches">Todas las ramas (filtro)</SelectItem>
               <SelectItem value="specific">Ramas específicas</SelectItem>
+              <SelectItem value="mrs-specific">MRs específicos</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -202,6 +231,81 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
             {selectedBranches.length > 0 && (
               <p className="text-xs text-muted-foreground px-1">
                 {selectedBranches.length} rama{selectedBranches.length !== 1 ? 's' : ''} seleccionada{selectedBranches.length !== 1 ? 's' : ''}
+              </p>
+            )}
+          </div>
+        )}
+
+        {mode === 'mrs-specific' && (
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Seleccionar MRs ({mrState})</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedMrs(prev => prev.length === filteredMrs.length ? [] : filteredMrs.map(m => m.iid))}
+                className="h-7 text-xs"
+              >
+                {selectedMrs.length === filteredMrs.length ? 'Deseleccionar todas' : 'Seleccionar todas'}
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="relative">
+                <Label className="text-xs mb-1 block">Estado</Label>
+                <Select value={mrState} onValueChange={(v) => setMrState(v as 'opened' | 'merged' | 'closed')}>
+                  <SelectTrigger className="h-9 border-border/50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="opened">Abiertos</SelectItem>
+                    <SelectItem value="merged">Mergeados</SelectItem>
+                    <SelectItem value="closed">Cerrados</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="relative">
+                <Label className="text-xs mb-1 block">Buscar MRs</Label>
+                <Input
+                  placeholder="Buscar por título o rama..."
+                  value={mrSearch}
+                  onChange={(e) => setMrSearch(e.target.value)}
+                  className="h-9 border-border/50"
+                />
+              </div>
+            </div>
+            <ScrollArea className="h-40 rounded-md border border-border/50">
+              <div className="p-2 space-y-1">
+                {mrsLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  </div>
+                ) : filteredMrs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    {mrSearch ? 'No se encontraron MRs' : 'No hay MRs disponibles'}
+                  </p>
+                ) : (
+                  filteredMrs.map((mr) => (
+                    <div key={mr.iid} className="flex items-center space-x-2.5 p-2 rounded-md hover:bg-muted/30 transition-colors group">
+                      <Checkbox
+                        id={`mr-${mr.iid}`}
+                        checked={selectedMrs.includes(mr.iid)}
+                        onCheckedChange={() => setSelectedMrs(prev => prev.includes(mr.iid) ? prev.filter(i => i !== mr.iid) : [...prev, mr.iid])}
+                        className="border-border/50"
+                      />
+                      <Label htmlFor={`mr-${mr.iid}`} className="flex-1 cursor-pointer text-sm font-normal group-hover:text-foreground transition-colors">
+                        <span className="font-mono text-xs mr-2">!{mr.iid}</span>
+                        <span className="truncate">{mr.title}</span>
+                        <span className="ml-2 text-xs text-muted-foreground">({mr.sourceBranch} → {mr.targetBranch})</span>
+                      </Label>
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+            {selectedMrs.length > 0 && (
+              <p className="text-xs text-muted-foreground px-1">
+                {selectedMrs.length} MR{selectedMrs.length !== 1 ? 's' : ''} seleccionado{selectedMrs.length !== 1 ? 's' : ''}
               </p>
             )}
           </div>
@@ -376,7 +480,7 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         <Button 
           type="submit" 
           className="w-full h-10 text-sm font-semibold bg-primary hover:bg-primary/90 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed" 
-          disabled={disabled || loading || (mode === 'specific' && selectedBranches.length === 0)}
+          disabled={disabled || loading || (mode === 'specific' && selectedBranches.length === 0) || (mode === 'mrs-specific' && selectedMrs.length === 0)}
         >
         {loading ? (
           <>
@@ -394,4 +498,3 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
     </form>
   );
 }
-

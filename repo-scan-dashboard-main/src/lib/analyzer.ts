@@ -28,7 +28,7 @@ export async function runAnalysis(
   ];
 
   // Mode
-  if (options.mode === 'mrs') {
+  if (options.mode === 'mrs' || options.mode === 'mrs-specific') {
     args.push('--from-gitlab-mrs');
     if (options.mrState) {
       args.push('--mr-state', options.mrState);
@@ -41,6 +41,9 @@ export async function runAnalysis(
     }
     if (options.onlyChanged) {
       args.push('--only-changed');
+    }
+    if (options.mrsIids && options.mrsIids.length > 0) {
+      args.push('--mr-iids', options.mrsIids.join(','));
     }
   } else if (options.mode === 'branches') {
     args.push('--from-gitlab-branches');
@@ -183,16 +186,28 @@ export async function runAnalysis(
     child.on('close', (code) => {
       runningChildren.delete(jobId);
       if (code === 0) {
-        setPhase('completed', 100);
-        jobManager.addLog(jobId, '✓ Análisis completado exitosamente');
-        jobManager.setJobSucceeded(jobId);
-        // Post MR comments (non-blocking) for MRs mode
-        if (options.mode === 'mrs') {
-          postMrCommentsForRepo(jobId, repoSlug).catch((e) => {
-            jobManager.addLog(jobId, `[WARN] No se pudieron publicar comentarios en MR: ${e?.message || e}`);
-          });
-        }
-        resolve();
+        (async () => {
+          // Mark near-complete
+          jobManager.addLog(jobId, '✓ Análisis completado exitosamente');
+          jobManager.updateJob(jobId, { phase: 'finalizing', progress: 99 });
+          // Post MR comments before marking as succeeded so logs stream to client
+          if (options.mode === 'mrs' || options.mode === 'mrs-specific') {
+            jobManager.addLog(jobId, '[INFO] Publicando comentarios en MRs…');
+            jobManager.updateJob(jobId, { phase: 'posting-comments', progress: 98 });
+            try {
+              await postMrCommentsForRepo(jobId, repoSlug);
+            } catch (e: any) {
+              jobManager.addLog(jobId, `[WARN] No se pudieron publicar comentarios en MR: ${e?.message || e}`);
+            }
+          }
+          jobManager.setJobSucceeded(jobId);
+          resolve();
+        })().catch((e) => {
+          // Even if posting comments fails unexpectedly, mark succeeded
+          jobManager.addLog(jobId, `[WARN] Post-proceso falló: ${e?.message || e}`);
+          jobManager.setJobSucceeded(jobId);
+          resolve();
+        });
       } else {
         const errorMsg = `Proceso terminó con código ${code}`;
         jobManager.addLog(jobId, `[ERROR] ${errorMsg}`);

@@ -401,7 +401,7 @@ async function main() {
     } finally {
       if (opts.cleanup) {
         console.log('Limpiando clone...');
-        try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch {}
+        try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch (e) { /* noop */ }
       } else {
         console.log(`Conservado clone en: ${cloneDir}`);
       }

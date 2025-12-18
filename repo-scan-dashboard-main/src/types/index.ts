@@ -12,7 +12,7 @@ export interface AnalysisJob {
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   progress?: number; // 0-100
   phase?: string;    // current phase label (e.g., 'cloning','linting','report')
-  mode: 'mrs' | 'branches' | 'specific';
+  mode: 'mrs' | 'mrs-specific' | 'branches' | 'specific';
   options: AnalysisOptions;
   startedAt?: Date;
   finishedAt?: Date;
@@ -21,12 +21,13 @@ export interface AnalysisJob {
 }
 
 export interface AnalysisOptions {
-  mode: 'mrs' | 'branches' | 'specific';
+  mode: 'mrs' | 'mrs-specific' | 'branches' | 'specific';
   branches?: string[];
   branchFilter?: string;
   mrState?: 'opened' | 'merged' | 'closed';
   mrTargetBranch?: string;
   mrLabels?: string[];
+  mrsIids?: Array<number | string>; // specific MR selection
   ignore?: string[];
   globs?: string[];
   depth?: number;

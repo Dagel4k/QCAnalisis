@@ -38,6 +38,7 @@ function canResolve(mod) {
     const searchPaths = [
       process.cwd(),
       path.join(process.cwd(), 'node_modules'),
+      path.join(process.cwd(), 'repo-scan-dashboard-main', 'node_modules'),
       path.join(process.cwd(), 'node_modules', '@scriptc', 'dev-tools', 'node_modules'),
       __dirname,
       path.join(__dirname, 'node_modules'),
@@ -277,7 +278,7 @@ function normalizeIgnorePattern(pat) {
   if (!p) return '';
   if (p.startsWith('/')) p = `**${p}`; // '/proto/' -> '**/proto/' ; '/*.pb.ts' -> '**/*.pb.ts'
   if (p.endsWith('/')) p = `${p}**`;
-  if (!/[\*\?]/.test(p) && !/\.[a-zA-Z0-9]+$/.test(p)) {
+  if (!/[*?]/.test(p) && !/\.[a-zA-Z0-9]+$/.test(p)) {
     p = `**/${p}/**`;
   }
   return p;
@@ -286,7 +287,7 @@ function normalizeIgnorePattern(pat) {
 // Convert a glob-like pattern into a loose regex string for CLI tools that accept regex (ts-prune)
 function globToRegexString(glob) {
   const g = normalizeIgnorePattern(glob)
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&') // escape regex specials first
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // escape regex specials first
     .replace(/\*\*/g, '.*')
     .replace(/\*/g, '[^/]*')
     .replace(/\?/g, '.');
@@ -559,21 +560,47 @@ async function generateHtmlLintReport() {
       noSecurity = false,
     } = opts || {};
     // Construir una config mínima dinámica según paquetes disponibles
-    const hasTsParser = canResolve('@typescript-eslint/parser');
-    const hasTsPlugin = canResolve('@typescript-eslint/eslint-plugin');
+    const hasTsParserOld = canResolve('@typescript-eslint/parser');
+    const hasTsParserNew = canResolve('typescript-eslint/parser');
+    const tsParserPath = hasTsParserOld ? '@typescript-eslint/parser' : (hasTsParserNew ? 'typescript-eslint/parser' : null);
+    const hasTsParser = !!tsParserPath;
+    const hasTsPlugin = canResolve('@typescript-eslint/eslint-plugin') || canResolve('typescript-eslint');
     const hasImport = !noImport && canResolve('eslint-plugin-import');
     const hasSonar = !noSonar && canResolve('eslint-plugin-sonarjs');
     const hasUnicorn = !noUnicorn && canResolve('eslint-plugin-unicorn');
     const hasSecurity = !noSecurity && canResolve('eslint-plugin-security');
 
+    const hasImportResolverTs = canResolve('eslint-import-resolver-typescript');
     const base = {
       ignorePatterns: ['node_modules/**', 'dist/**', 'build/**'],
       env: { es2021: true, browser: true, node: true },
+      parserOptions: { ecmaVersion: 'latest', sourceType: 'module' },
       extends: ['eslint:recommended'],
       plugins: [],
       overrides: [],
       rules: {},
-      settings: {},
+      settings: {
+        ...(hasImport ? {
+          'import/resolver': hasImportResolverTs
+            ? {
+                typescript: {
+                  // Apunta al tsconfig del dashboard para resolver '@/*'
+                  project: [
+                    path.join(process.cwd(), 'repo-scan-dashboard-main', 'tsconfig.json'),
+                  ],
+                  alwaysTryTypes: true,
+                },
+                node: {
+                  extensions: ['.ts', '.tsx', '.js', '.jsx'],
+                },
+              }
+            : {
+                node: {
+                  extensions: ['.ts', '.tsx', '.js', '.jsx'],
+                },
+              },
+        } : {}),
+      },
     };
     if (hasSecurity) {
       base.plugins.push('security');
@@ -582,8 +609,8 @@ async function generateHtmlLintReport() {
     if (hasTsParser) {
       base.overrides.push({
         files: ['**/*.ts', '**/*.tsx'],
-        parser: '@typescript-eslint/parser',
-        parserOptions: { sourceType: 'module' },
+        parser: tsParserPath,
+        parserOptions: { sourceType: 'module', ecmaVersion: 'latest' },
         plugins: [
           ...(hasTsPlugin ? ['@typescript-eslint'] : []),
           ...(hasImport ? ['import'] : []),
@@ -598,6 +625,13 @@ async function generateHtmlLintReport() {
           ...(hasUnicorn ? ['plugin:unicorn/recommended'] : []),
           ...(hasSecurity ? ['plugin:security/recommended'] : []),
         ],
+        settings: base.settings,
+        rules: {
+          ...(hasImport && !hasImportResolverTs ? {
+            // Evita ruido por alias '@/' si no está el resolver TS
+            'import/no-unresolved': ['error', { ignore: ['^@/'] }],
+          } : {}),
+        },
       });
     }
     return base;
@@ -654,18 +688,18 @@ async function generateHtmlLintReport() {
 
   // Use a temporary CWD with a valid package.json to prevent ESLint from parsing the project's package.json
   const tmpCwd = path.join(process.cwd(), 'reports', '.eslint-tmp');
-  try { fs.mkdirSync(tmpCwd, { recursive: true }); } catch {}
+  try { fs.mkdirSync(tmpCwd, { recursive: true }); } catch (e) { (void e); }
   try {
     const pkgPath = path.join(tmpCwd, 'package.json');
     if (!fs.existsSync(pkgPath)) {
       fs.writeFileSync(pkgPath, JSON.stringify({ name: 'eslint-tmp', private: true }, null, 2), 'utf8');
     }
-  } catch {}
+  } catch (e) { (void e); }
 
   let results;
   try {
     const eslint = new ESLint({
-      cwd: tmpCwd,
+      cwd: process.cwd(),
       extensions: ['.ts', '.tsx', '.js', '.jsx'],
       fix: false,
       useEslintrc: false,
@@ -676,7 +710,7 @@ async function generateHtmlLintReport() {
   } catch (err) {
     const msg = String((err && err.message) || err);
     const needFallback = /Failed to load config|extend-config-missing|Cannot find module 'eslint-config/.test(msg);
-    const unicornFail = /plugin ['\"]unicorn['\"]|eslint-plugin-unicorn/.test(msg);
+    const unicornFail = /plugin ['"]unicorn['"]|eslint-plugin-unicorn/.test(msg);
     const noFiles = /No files matching/.test(msg) || (err && err.name === 'NoFilesFoundError');
     if (noFiles) {
       const hasSrc = fs.existsSync(path.join(process.cwd(), 'src'));
@@ -694,7 +728,7 @@ async function generateHtmlLintReport() {
         followSymbolicLinks: false,
       });
       const eslint = new ESLint({
-        cwd: tmpCwd,
+        cwd: process.cwd(),
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
         fix: false,
         useEslintrc: false,
@@ -705,7 +739,7 @@ async function generateHtmlLintReport() {
     } else if (!forceInternalEslint && needFallback) {
       console.warn('[WARN] ESLint config del proyecto no disponible. Usando configuración interna mínima.');
       const eslint = new ESLint({
-        cwd: tmpCwd,
+        cwd: process.cwd(),
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
         fix: false,
         useEslintrc: false,
@@ -716,7 +750,7 @@ async function generateHtmlLintReport() {
     } else if (unicornFail) {
       console.warn('[WARN] Falling back without eslint-plugin-unicorn due to plugin error.');
       const eslint = new ESLint({
-        cwd: tmpCwd,
+        cwd: process.cwd(),
         extensions: ['.ts', '.tsx', '.js', '.jsx'],
         fix: false,
         useEslintrc: false,
@@ -994,13 +1028,13 @@ async function generateHtmlLintReport() {
   if (!noSecretScan) {
     const SECRET_PATTERNS = [
       { key: 'AWS Access Key ID', re: /AKIA[0-9A-Z]{16}/g },
-      { key: 'AWS Secret Access Key', re: new RegExp("aws(.{0,20})?['\"][0-9a-zA-Z/+]{40}['\"]", 'i') },
+      { key: 'AWS Secret Access Key', re: /aws(.{0,20})?['"][0-9a-zA-Z/+]{40}['"]/i },
       { key: 'Google API Key', re: /AIza[0-9A-Za-z\-_]{35}/g },
       { key: 'GitHub Token', re: /ghp_[0-9A-Za-z]{36}/g },
       { key: 'Slack Token', re: /xox[baprs]-[0-9A-Za-z-]{10,}/g },
       { key: 'Private Key Block', re: /-----BEGIN (?:RSA |EC )?PRIVATE KEY-----/g },
       { key: 'JWT-like Token', re: /eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]{10,}/g },
-      { key: 'Generic Secret Assignment', re: /(password|passwd|pwd|secret|api[-_]?key|token)\s*[:=]\s*['\"][^'"\n]{6,}['\"]/gi },
+      { key: 'Generic Secret Assignment', re: /(password|passwd|pwd|secret|api[-_]?key|token)\s*[:=]\s*['"][^'"\n]{6,}['"]/gi },
     ];
     for (const res of filteredResults) {
       const file = path.relative(process.cwd(), res.filePath);
@@ -1023,7 +1057,7 @@ async function generateHtmlLintReport() {
             }
           }
         }
-      } catch {}
+      } catch (e) { (void e); }
     }
   }
   if (noSecretScan) {
@@ -2222,16 +2256,16 @@ async function generateHtmlLintReport() {
                 <div class="charts-grid">
                     <div class="chart-card">
                         <div class="chart-title">By Directory (Top 10)</div>
-                        ${topDirs.length === 0 ? `<div style=\"color: hsl(var(--muted-foreground));\">No issues to chart.</div>` : `
-                        <div class=\"bar-chart\">
+                        ${topDirs.length === 0 ? `<div style="color: hsl(var(--muted-foreground));">No issues to chart.</div>` : `
+                        <div class="bar-chart">
                             ${topDirs
                               .map(([dir, count], idx) => {
                                 const h = Math.max(4, Math.round((count / maxDirIssues) * 100));
                                 const colorVar = barColorVars[idx % barColorVars.length];
                                 return `
-                                <div class=\"bar-wrap\" title=\"${escapeHtml(dir)}: ${count}\">
-                                    <div class=\"bar\" style=\"height:${h}%; --bar-color-hsl: var(${colorVar});\"><span class=\"bar-value\">${count}</span></div>
-                                    <div class=\"bar-label\">${escapeHtml(dir)}</div>
+                                <div class="bar-wrap" title="${escapeHtml(dir)}: ${count}">
+                                    <div class="bar" style="height:${h}%; --bar-color-hsl: var(${colorVar});"><span class="bar-value">${count}</span></div>
+                                    <div class="bar-label">${escapeHtml(dir)}</div>
                                 </div>`;
                               })
                               .join('')}
@@ -2245,10 +2279,10 @@ async function generateHtmlLintReport() {
                                 ${donutData
                                   .map(
                                     (d) => `
-                                <div class=\"legend-item\">
-                                    <span class=\"legend-swatch\" style=\"background:${d.color}\"></span>
+                                <div class="legend-item">
+                                    <span class="legend-swatch" style="background:${d.color}"></span>
                                     <span>${d.key}</span>
-                                    <span style=\"margin-left:auto; font-weight:600;\">${d.count}</span>
+                                    <span style="margin-left:auto; font-weight:600;">${d.count}</span>
                                 </div>`,
                                   )
                                   .join('')}
@@ -2262,7 +2296,7 @@ async function generateHtmlLintReport() {
         ${
           sortedRules.length > 0
             ? `
-        <div id=\"section-rules\" class=\"section collapsible collapsed\">
+        <div id="section-rules" class="section collapsible collapsed">
             <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Issues by Rule (Top ${Math.min(15, sortedRules.length)})</span><span class="caret">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
@@ -2300,7 +2334,7 @@ async function generateHtmlLintReport() {
 
         ${securityCount > 0 ? `
         <div id="section-security" class="section collapsible collapsed">
-            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-alert\" /></svg> Security Findings (ESLint + Semgrep)</span><span class=\"caret\">▾</span></div>
+            <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-alert" /></svg> Security Findings (ESLint + Semgrep)</span><span class="caret">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
                     <thead>
@@ -2317,23 +2351,23 @@ async function generateHtmlLintReport() {
                         ${securityFindings.slice(0, 200).map(item => `
                         <tr>
                             <td><code>${escapeHtml(item.file)}</code></td>
-                            <td style=\"text-align: center;\">${item.line}</td>
-                            <td>${(() => { const url = docUrlForRule(item.ruleId); const content = `<code>${escapeHtml(item.ruleId)}</code>`; return url ? `<a href=\"${url}\" target=\"_blank\" rel=\"noopener noreferrer\">${content}</a>` : content; })()}</td>
-                            <td style=\"text-transform: capitalize;\">${escapeHtml(item.source || 'unknown')}</td>
-                            <td style=\"text-align: center;\">${item.severity}</td>
+                            <td style="text-align: center;">${item.line}</td>
+                            <td>${(() => { const url = docUrlForRule(item.ruleId); const content = `<code>${escapeHtml(item.ruleId)}</code>`; return url ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${content}</a>` : content; })()}</td>
+                            <td style="text-transform: capitalize;">${escapeHtml(item.source || 'unknown')}</td>
+                            <td style="text-align: center;">${item.severity}</td>
                             <td>${escapeHtml(item.message)}</td>
                         </tr>
                         `).join('')}
                     </tbody>
                 </table></div>
-                ${securityFindings.length > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${securityFindings.length} security rule findings</p>` : ''}
+                ${securityFindings.length > 200 ? `<p style="margin-top: 1rem; color: hsl(var(--muted-foreground));">Showing first 200 of ${securityFindings.length} security rule findings</p>` : ''}
             </div>
         </div>
         ` : ''}
 
         ${secretFindings.length > 0 ? `
         <div id="section-secrets" class="section collapsible collapsed">
-            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-lock\" /></svg> Secrets & Credentials (Heuristics + Gitleaks)</span><span class=\"caret\">▾</span></div>
+            <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-lock" /></svg> Secrets & Credentials (Heuristics + Gitleaks)</span><span class="caret">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
                     <thead>
@@ -2349,24 +2383,24 @@ async function generateHtmlLintReport() {
                         ${secretFindings.slice(0, 200).map(item => `
                         <tr>
                             <td><code>${escapeHtml(item.file)}</code></td>
-                            <td style=\"text-align: center;\">${item.line}</td>
+                            <td style="text-align: center;">${item.line}</td>
                             <td>${escapeHtml(item.type)}</td>
-                            <td style=\"text-transform: capitalize;\">${escapeHtml(item.source || 'unknown')}</td>
+                            <td style="text-transform: capitalize;">${escapeHtml(item.source || 'unknown')}</td>
                             <td><code>${escapeHtml(item.match)}</code></td>
                         </tr>
                         `).join('')}
                     </tbody>
                 </table></div>
-                ${secretFindings.length > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${secretFindings.length} potential secrets</p>` : ''}
+                ${secretFindings.length > 200 ? `<p style="margin-top: 1rem; color: hsl(var(--muted-foreground));">Showing first 200 of ${secretFindings.length} potential secrets</p>` : ''}
             </div>
         </div>
         ` : ''}
 
         ${depVulnCount > 0 ? `
-        <div id=\"section-deps\" class=\"section collapsible collapsed\">
-            <div class=\"section-header\" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-alert\" /></svg> Dependencies Vulnerabilities (OSV-Scanner)</span><span class=\"caret\">▾</span></div>
-            <div class=\"section-content\">
-                <div class=\"table-responsive\"><table class=\"rules-table\">
+        <div id="section-deps" class="section collapsible collapsed">
+            <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-alert" /></svg> Dependencies Vulnerabilities (OSV-Scanner)</span><span class="caret">▾</span></div>
+            <div class="section-content">
+                <div class="table-responsive"><table class="rules-table">
                     <thead>
                         <tr>
                             <th>Package</th>
@@ -2381,23 +2415,23 @@ async function generateHtmlLintReport() {
                         ${osvFindings.slice(0, 200).map(v => `
                         <tr>
                             <td><code>${escapeHtml(v.package)}</code></td>
-                            <td style=\"text-align:center;\">${escapeHtml(v.version)}</td>
+                            <td style="text-align:center;">${escapeHtml(v.version)}</td>
                             <td><code>${escapeHtml(v.id)}</code></td>
-                            <td style=\"text-align:center;\">${escapeHtml(v.severity)}</td>
+                            <td style="text-align:center;">${escapeHtml(v.severity)}</td>
                             <td><code>${escapeHtml(v.source || '')}</code></td>
                             <td>${escapeHtml(v.summary || '')}</td>
                         </tr>
                         `).join('')}
                     </tbody>
                 </table></div>
-                ${depVulnCount > 200 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 200 of ${depVulnCount} dependency vulnerabilities</p>` : ''}
+                ${depVulnCount > 200 ? `<p style="margin-top: 1rem; color: hsl(var(--muted-foreground));">Showing first 200 of ${depVulnCount} dependency vulnerabilities</p>` : ''}
             </div>
         </div>
         ` : ''}
 
         ${tsPruneData.count > 0 ? `
         <div id="section-tsprune" class="section collapsible collapsed">
-            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-list\" /></svg> Unused Exports (ts-prune)</span><span class=\"caret\">▾</span></div>
+            <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-list" /></svg> Unused Exports (ts-prune)</span><span class="caret">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
                     <thead>
@@ -2417,14 +2451,14 @@ async function generateHtmlLintReport() {
                         `).join('')}
                     </tbody>
                 </table></div>
-                ${tsPruneData.count > 100 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 100 of ${tsPruneData.count} unused exports</p>` : ''}
+                ${tsPruneData.count > 100 ? `<p style="margin-top: 1rem; color: hsl(var(--muted-foreground));">Showing first 100 of ${tsPruneData.count} unused exports</p>` : ''}
             </div>
         </div>
         ` : ''}
 
         ${jscpdData.count > 0 ? `
         <div id="section-jscpd" class="section collapsible collapsed">
-            <div class="section-header" onclick=\"toggleSectionCollapse(this)\"><span><svg class=\"icon icon-lg\" viewBox=\"0 0 24 24\"><use href=\"#icon-duplicate\" /></svg> Code Duplicates (jscpd) - ${jscpdData.percentage.toFixed(2)}% duplication</span><span class=\"caret\">▾</span></div>
+            <div class="section-header" onclick="toggleSectionCollapse(this)"><span><svg class="icon icon-lg" viewBox="0 0 24 24"><use href="#icon-duplicate" /></svg> Code Duplicates (jscpd) - ${jscpdData.percentage.toFixed(2)}% duplication</span><span class="caret">▾</span></div>
             <div class="section-content">
                 <div class="table-responsive"><table class="rules-table">
                     <thead>
@@ -2448,7 +2482,7 @@ async function generateHtmlLintReport() {
                         `).join('')}
                     </tbody>
                 </table></div>
-                ${jscpdData.count > 50 ? `<p style=\"margin-top: 1rem; color: hsl(var(--muted-foreground));\">Showing first 50 of ${jscpdData.count} duplicates</p>` : ''}
+                ${jscpdData.count > 50 ? `<p style="margin-top: 1rem; color: hsl(var(--muted-foreground));">Showing first 50 of ${jscpdData.count} duplicates</p>` : ''}
             </div>
         </div>
         ` : ''}
@@ -2501,8 +2535,8 @@ async function generateHtmlLintReport() {
                                     <div class="file-path">${escapeHtml(relativePath)}</div>
                                 </div>
                                 <div class="file-stats">
-                                    ${result.errorCount > 0 ? `<span class=\"badge badge-error\">${result.errorCount} error${result.errorCount !== 1 ? 's' : ''}</span>` : ''}
-                                    ${result.warningCount > 0 ? `<span class=\"badge badge-warning\">${result.warningCount} warning${result.warningCount !== 1 ? 's' : ''}</span>` : ''}
+                                    ${result.errorCount > 0 ? `<span class="badge badge-error">${result.errorCount} error${result.errorCount !== 1 ? 's' : ''}</span>` : ''}
+                                    ${result.warningCount > 0 ? `<span class="badge badge-warning">${result.warningCount} warning${result.warningCount !== 1 ? 's' : ''}</span>` : ''}
                                 </div>
                                 <button class="btn-copy" onclick="copyFileLink('${fileId}', event)"><svg class="icon" viewBox="0 0 24 24"><use href="#icon-link" /></svg> Copy link</button>
                             </div>
@@ -2663,6 +2697,21 @@ async function generateHtmlLintReport() {
     const topRules = (Array.isArray(sortedRules) ? sortedRules : [])
       .slice(0, 10)
       .map(([rule, stats]) => ({ rule, ...stats }));
+    // Build full per-file issues for machine consumption (all ESLint messages)
+    const filesDetailed = filteredResults.map((res) => ({
+      file: path.relative(process.cwd(), res.filePath),
+      errorCount: res.errorCount,
+      warningCount: res.warningCount,
+      messages: (res.messages || []).map((m) => ({
+        line: m.line || 0,
+        column: m.column || 0,
+        endLine: m.endLine || undefined,
+        endColumn: m.endColumn || undefined,
+        ruleId: m.ruleId || '',
+        severity: m.severity === 2 ? 'error' : 'warning',
+        message: m.message || '',
+      })),
+    }));
     const jsonSummary = {
       generatedAt: new Date().toISOString(),
       filesAnalyzed: filteredResults.length,
@@ -2681,6 +2730,8 @@ async function generateHtmlLintReport() {
         passed: failures.length === 0,
         failures,
       },
+      // Full ESLint issues by file
+      files: filesDetailed,
     };
     fs.writeFileSync(path.join(reportsDir, 'lint-summary.json'), JSON.stringify(jsonSummary, null, 2), 'utf8');
   } catch (e) {

@@ -102,27 +102,35 @@ function findSummaryForRepo(repoSlug: string, repoUrl?: string): ReportSummary |
 }
 
 function reposWithStatusFrom(repos: Repository[]): RepositoryWithStatus[] {
-  return repos.map((repo) => {
-    const summary = findSummaryForRepo(repo.slug, repo.repoUrl);
-    if (summary) {
-      let lastDate = summary.generatedAt;
-      let count = summary.branches.length;
-      if (summary.history && summary.history.length > 0) {
-        const latest = [...summary.history].sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())[0];
-        if (latest?.generatedAt) lastDate = latest.generatedAt;
-        count = summary.history.length;
+  const out: RepositoryWithStatus[] = [];
+  for (const repo of repos) {
+    try {
+      const summary = findSummaryForRepo(repo.slug, repo.repoUrl);
+      if (summary) {
+        let lastDate = summary.generatedAt;
+        let count = summary.branches.length;
+        if (summary.history && summary.history.length > 0) {
+          const latest = [...summary.history].sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime())[0];
+          if (latest?.generatedAt) lastDate = latest.generatedAt;
+          count = summary.history.length;
+        }
+        out.push({
+          ...repo,
+          lastAnalysis: {
+            date: lastDate,
+            status: 'succeeded' as const,
+            branchCount: count,
+          },
+        });
+        continue;
       }
-      return {
-        ...repo,
-        lastAnalysis: {
-          date: lastDate,
-          status: 'succeeded' as const,
-          branchCount: count,
-        },
-      };
+      out.push(repo as RepositoryWithStatus);
+    } catch (e) {
+      console.warn('Failed to enrich repo summary:', repo.slug, e);
+      out.push(repo as RepositoryWithStatus);
     }
-    return repo as RepositoryWithStatus;
-  });
+  }
+  return out;
 }
 
 // GET /api/repos - List all repos with status

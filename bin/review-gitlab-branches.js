@@ -13,7 +13,7 @@
     --install-dev "file:../packages/dev-tools/dev-tools-0.1.0.tgz"
 */
 
-const { execSync, spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -38,7 +38,7 @@ function loadEnvFromFile(filePath) {
         process.env[key] = val;
       }
     });
-  } catch {}
+  } catch (e) { (void e); }
 }
 
 // Cargar .env temprano (permite --env-file <ruta> o DOTENV_PATH)
@@ -175,14 +175,14 @@ function runNodeAsync(scriptPath, { cwd, env = {}, args = [], logFile } = {}) {
       const text = data.toString();
       console.log(text);
       if (logFile) {
-        try { fs.appendFileSync(logFile, text.endsWith('\n') ? text : text + '\n'); } catch {}
+        try { fs.appendFileSync(logFile, text.endsWith('\n') ? text : text + '\n'); } catch (e) { (void e); }
       }
     });
     child.stderr.on('data', (data) => {
       const text = data.toString();
       console.error(text);
       if (logFile) {
-        try { fs.appendFileSync(logFile, `[ERROR] ${text.endsWith('\n') ? text : text + '\n'}`); } catch {}
+        try { fs.appendFileSync(logFile, `[ERROR] ${text.endsWith('\n') ? text : text + '\n'}`); } catch (e) { (void e); }
       }
     });
 
@@ -355,7 +355,7 @@ async function main() {
       if (Array.isArray(prev.branches)) summary.branches = prev.branches;
       if (Array.isArray(prev.mrs)) summary.mrs = prev.mrs;
     }
-  } catch {}
+  } catch (e) { (void e); }
 
   const manualTasks = opts.branches.map((branch) => ({
     type: 'branch',
@@ -417,7 +417,7 @@ async function main() {
     const logFile = path.join(taskReportsDir, 'analysis.log');
     const appendLog = (msg, isError = false) => {
       const line = `${isError ? '[ERROR] ' : ''}${msg}`;
-      try { fs.appendFileSync(logFile, line.endsWith('\n') ? line : line + '\n'); } catch {}
+      try { fs.appendFileSync(logFile, line.endsWith('\n') ? line : line + '\n'); } catch (e) { (void e); }
       if (isError) console.error(msg); else console.log(msg);
     };
 
@@ -458,7 +458,7 @@ async function main() {
           u.password = opts.gitlabToken;
           cloneUrl = u.toString();
         }
-      } catch {}
+      } catch (e) { (void e); }
       appendLog(`git clone --depth ${opts.depth} --branch ${branchName} --single-branch ${cloneUrl} ${cloneDir}`);
       if (!fs.existsSync(cloneDir)) {
         const cloneExtra = process.env.SPARSE_CHECKOUT === '1' || process.env.GIT_FILTER_BLOB_NONE === '1' ? '--filter=blob:none' : '';
@@ -603,7 +603,7 @@ async function main() {
         if (fs.existsSync(sourceSummaryJson)) {
           const targetSummaryJson = path.join(taskReportsDir, 'lint-summary.json');
           fs.copyFileSync(sourceSummaryJson, targetSummaryJson);
-          try { metrics = JSON.parse(fs.readFileSync(sourceSummaryJson, 'utf8')); } catch {}
+          try { metrics = JSON.parse(fs.readFileSync(sourceSummaryJson, 'utf8')); } catch (e) { (void e); }
         }
 
         // Agregar a history
@@ -642,7 +642,7 @@ async function main() {
     } finally {
       if (opts.cleanup) {
         appendLog('Limpiando clone...');
-        try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch {}
+        try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch (e) { (void e); }
       } else {
         appendLog(`Conservado clone en: ${cloneDir}`);
       }

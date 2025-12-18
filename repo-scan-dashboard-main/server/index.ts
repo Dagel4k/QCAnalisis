@@ -7,6 +7,7 @@ import { reposRouter } from './routes/repos.js';
 import { analyzeRouter } from './routes/analyze.js';
 import { jobsRouter } from './routes/jobs.js';
 import { branchesRouter } from './routes/branches.js';
+import { mrsRouter } from './routes/mrs.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -130,6 +131,7 @@ app.use('/api/repos', reposRouter);
 app.use('/api/analyze', analyzeRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/branches', branchesRouter);
+app.use('/api/mrs', mrsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

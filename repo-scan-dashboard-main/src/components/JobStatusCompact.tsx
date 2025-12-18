@@ -28,6 +28,7 @@ interface JobStatusCompactProps {
 export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: JobStatusCompactProps) {
   const [progressLocal, setProgressLocal] = useState(0);
   const [logsOpen, setLogsOpen] = useState(false);
+  const [fileLogs, setFileLogs] = useState<string | null>(null);
   const [canceling, setCanceling] = useState(false);
 
   useEffect(() => {
@@ -72,7 +73,7 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
   const errorLogs = job.logs.filter(log => log.includes('[ERROR]'));
   const hasErrors = errorLogs.length > 0;
   const showSuccessActions = job.status === 'succeeded' && !!latestReportId && !!repoSlug;
-  const showLogsDialog = job.logs.length > 0 && !showSuccessActions;
+  const showLogsDialog = job.status === 'succeeded' || job.logs.length > 0;
 
   return (
     <>
@@ -104,7 +105,25 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
           </div>
 
           {showLogsDialog && (
-          <Dialog open={logsOpen} onOpenChange={setLogsOpen}>
+          <Dialog open={logsOpen} onOpenChange={async (open) => {
+            setLogsOpen(open);
+            // During running, prefer live logs; after success, load file logs for the latest report
+            if (open && repoSlug && latestReportId && job.status === 'succeeded') {
+              try {
+                const resp = await fetch(`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId)}/logs`);
+                if (resp.ok) {
+                  const text = await resp.text();
+                  setFileLogs(text);
+                } else {
+                  setFileLogs(null);
+                }
+              } catch {
+                setFileLogs(null);
+              }
+            } else if (open) {
+              setFileLogs(null);
+            }
+          }}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="sm" className="gap-2 h-8 text-xs">
                 <Terminal className="h-3.5 w-3.5" />
@@ -115,29 +134,42 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
               <DialogHeader>
                 <DialogTitle>Registro de Ejecución</DialogTitle>
                 <DialogDescription>
-                  {job.logs.length} líneas de registro
+                  {(() => {
+                    const fileCount = fileLogs ? fileLogs.split('\n').length : 0;
+                    const memCount = job.logs.length;
+                    if (job.status !== 'succeeded') return `${memCount} líneas (en vivo)`;
+                    // After success, prefer the richer source
+                    if (fileCount >= memCount && fileCount > 0) return `${fileCount} líneas (archivo)`;
+                    return `${memCount} líneas (en vivo)`;
+                  })()}
                 </DialogDescription>
               </DialogHeader>
               <ScrollArea className="h-[65vh] w-full rounded-md border border-border bg-muted/30 p-4">
-                <div className="space-y-1 font-mono text-xs">
-                  {job.logs.map((log, i) => {
-                    const isError = log.includes('[ERROR]');
-                    const isSuccess = log.includes('✓') || log.includes('completado');
-                    
-                    return (
-                      <div
-                        key={`${job.id}-${i}-${job.logs.length}`}
-                        className={cn(
-                          "break-words",
-                          isError && "text-destructive",
-                          isSuccess && "text-green-500",
-                          !isError && !isSuccess && "text-foreground/80"
-                        )}
-                      >
-                        {log}
-                      </div>
-                    );
-                  })}
+                <div className="space-y-1 font-mono text-xs whitespace-pre-wrap break-words">
+                  {(() => {
+                    const fileCount = fileLogs ? fileLogs.split('\n').length : 0;
+                    const memCount = job.logs.length;
+                    const useFile = job.status === 'succeeded' && fileLogs && fileCount >= memCount;
+                    if (useFile) {
+                      return fileLogs;
+                    }
+                    return job.logs.map((log, i) => {
+                      const isError = log.includes('[ERROR]');
+                      const isSuccess = log.includes('✓') || log.includes('completado');
+                      return (
+                        <div
+                          key={`${job.id}-${i}-${job.logs.length}`}
+                          className={cn(
+                            isError && "text-destructive",
+                            isSuccess && "text-green-500",
+                            !isError && !isSuccess && "text-foreground/80"
+                          )}
+                        >
+                          {log}
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </ScrollArea>
               {job.error && (
@@ -152,13 +184,6 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
 
           {showSuccessActions && (
             <div className="flex items-center gap-2">
-              <a
-                href={`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId!)}/logs`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Button size="sm" variant="outline">Logs</Button>
-              </a>
               <a
                 href={`${API_URL}/api/repos/${repoSlug}/reports/${encodeURIComponent(latestReportId!)}`}
                 target="_blank"

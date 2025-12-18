@@ -16,16 +16,13 @@ function getProjectPathFromRepoUrl(repoUrl: string): string {
   }
 }
 
-async function gitlabRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!config.gitlabBase || !config.gitlabToken) {
-    throw new Error('GitLab base or token not configured');
-  }
-  const url = `${config.gitlabBase.replace(/\/$/, '')}${path}`;
+async function gitlabRequestDirect<T>(base: string, token: string, path: string, init?: RequestInit): Promise<T> {
+  const url = `${base.replace(/\/$/, '')}${path}`;
   const resp = await fetch(url, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      'PRIVATE-TOKEN': config.gitlabToken,
+      ...(token ? { 'PRIVATE-TOKEN': token } : {}),
       ...(init?.headers || {}),
     },
   });
@@ -40,18 +37,31 @@ async function gitlabRequest<T>(path: string, init?: RequestInit): Promise<T> {
 export async function getProjectIdFromRepoUrl(repoUrl: string): Promise<number> {
   const path = getProjectPathFromRepoUrl(repoUrl);
   if (!path) throw new Error('Cannot derive project path from repoUrl');
-  // GET /api/v4/projects/:urlencoded_path
+  const base = (config.gitlabBase || '').trim() || new URL(repoUrl).origin;
+  const token = (config.gitlabToken || '').trim();
   const enc = encodeURIComponent(path);
-  const proj = await gitlabRequest<GitLabProject>(`/api/v4/projects/${enc}`);
+  const proj = await gitlabRequestDirect<GitLabProject>(base, token, `/api/v4/projects/${enc}`);
   return proj.id;
 }
 
 export async function postMrComment(projectId: number, mrIid: number | string, body: string): Promise<void> {
-  await gitlabRequest(`/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes`, {
+  const base = (config.gitlabBase || '').trim();
+  const token = (config.gitlabToken || '').trim();
+  if (!base) throw new Error('GITLAB_BASE not configured');
+  await gitlabRequestDirect(base, token, `/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes`, {
     method: 'POST',
     body: JSON.stringify({ body }),
   });
 }
+
+export async function postMrCommentDirect(base: string, token: string, projectId: number, mrIid: number | string, body: string): Promise<void> {
+  await gitlabRequestDirect(base, token, `/api/v4/projects/${projectId}/merge_requests/${mrIid}/notes`, {
+    method: 'POST',
+    body: JSON.stringify({ body }),
+  });
+}
+
+export { gitlabRequestDirect };
 
 export async function createMergeRequest(
   projectId: number,
@@ -74,4 +84,3 @@ export async function createMergeRequest(
   );
   return mr;
 }
-
