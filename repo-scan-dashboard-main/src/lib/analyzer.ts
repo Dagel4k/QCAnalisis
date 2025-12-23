@@ -139,6 +139,10 @@ export async function runAnalysis(
       CLONE_TIMEOUT_MS: typeof options.cloneTimeoutMs === 'number' ? String(options.cloneTimeoutMs) : undefined,
       FETCH_TIMEOUT_MS: typeof options.fetchTimeoutMs === 'number' ? String(options.fetchTimeoutMs) : undefined,
       CMD_TIMEOUT_MS: typeof options.cmdTimeoutMs === 'number' ? String(options.cmdTimeoutMs) : undefined,
+      // Lint plugin toggles
+      REPORT_NO_UNICORN: options.disableUnicorn ? '1' : undefined,
+      REPORT_NO_UNICORN_PREVENT_ABBR: options.disableUnicornPreventAbbr ? '1' : undefined,
+      REPORT_DISABLED_RULES: options.disabledRules ? options.disabledRules : undefined,
     };
 
     const child: ChildProcessWithoutNullStreams = spawn('node', args, {

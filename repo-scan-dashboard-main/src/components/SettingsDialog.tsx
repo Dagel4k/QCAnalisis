@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { HelpCircle } from '@/icons';
 
@@ -29,6 +30,10 @@ type AnalyzerSettings = {
   cloneTimeoutMs?: number;
   fetchTimeoutMs?: number;
   cmdTimeoutMs?: number;
+  // Lint plugins toggles
+  disableUnicorn: boolean;
+  disableUnicornPreventAbbr: boolean;
+  disabledRules: string;
 };
 
 const STORAGE_KEY = 'analyzerSettings';
@@ -48,6 +53,9 @@ const defaultSettings: AnalyzerSettings = {
   cloneTimeoutMs: undefined,
   fetchTimeoutMs: undefined,
   cmdTimeoutMs: undefined,
+  disableUnicorn: false,
+  disableUnicornPreventAbbr: false,
+  disabledRules: '',
 };
 
 function loadSettings(): AnalyzerSettings {
@@ -160,6 +168,42 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   brief="Patrones simples para encontrar posibles secretos."
                   detail="Usa regex para detectar tokens tipo AWS/GitHub/JWT/etc. Puede producir falsos positivos. Recomendado combinar con Gitleaks." />
               </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="disableUnicorn" checked={s.disableUnicorn} onCheckedChange={(v) => setS({ ...s, disableUnicorn: v === true })} />
+              <Label htmlFor="disableUnicorn" className="text-sm flex items-center gap-1">
+                Desactivar reglas Unicorn
+                <Help title="Desactivar plugin Unicorn"
+                  brief="Desactiva todas las reglas del plugin eslint-plugin-unicorn."
+                  detail="Útil para reducir ruido por reglas de estilo (naming, node: protocol, etc.) cuando se desea enfocar en errores funcionales."
+                />
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="disableUnicornPreventAbbr" checked={s.disableUnicornPreventAbbr} onCheckedChange={(v) => setS({ ...s, disableUnicornPreventAbbr: v === true })} />
+              <Label htmlFor="disableUnicornPreventAbbr" className="text-sm flex items-center gap-1">
+                Ignorar prevent-abbreviations
+                <Help title="Ignorar unicorn/prevent-abbreviations"
+                  brief="Ignora la regla que obliga a expandir abreviaciones (req→request, props→properties, etc.)."
+                  detail="Reduce cientos de incidencias de estilo. Si necesitas esta disciplina, puedes reactivarla más adelante."
+                />
+              </Label>
+            </div>
+            <div className="space-y-1.5 pt-2">
+              <Label htmlFor="disabledRules" className="text-sm font-medium flex items-center gap-1">
+                Reglas desactivadas (opcional)
+                <Help title="Desactivar reglas específicas"
+                  brief="Lista de reglas de ESLint a desactivar, separadas por coma."
+                  detail="Ejemplo: unicorn/prevent-abbreviations, import/no-unresolved. Estas reglas se establecerán a 'off' en la configuración de ESLint."
+                />
+              </Label>
+              <Textarea
+                id="disabledRules"
+                value={s.disabledRules}
+                onChange={(e) => setS({ ...s, disabledRules: e.target.value })}
+                placeholder="unicorn/prevent-abbreviations, import/no-unresolved, ..."
+                className="h-24 text-xs font-mono"
+              />
             </div>
           </div>
 

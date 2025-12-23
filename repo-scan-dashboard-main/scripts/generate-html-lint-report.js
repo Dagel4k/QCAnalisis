@@ -371,9 +371,21 @@ async function generateHtmlLintReport() {
     console.log(`📋 Ignoring patterns: ${ignorePatterns.join(', ')}`);
   }
 
+  const envDisabledRules = process.env.REPORT_DISABLED_RULES;
+  let disabledRulesConfig = {};
+  if (envDisabledRules) {
+      envDisabledRules.split(',').forEach(r => {
+          const rule = r.trim();
+          if (rule) disabledRulesConfig[rule] = 'off';
+      });
+  }
+
   const eslint = new ESLint({
     extensions: ['.ts', '.tsx', '.js', '.jsx'],
     fix: false,
+    overrideConfig: {
+      rules: disabledRulesConfig
+    }
   });
 
   const patterns = lintGlobs ? [lintGlobs] : ['src/**/*.ts'];
@@ -454,10 +466,22 @@ async function generateHtmlLintReport() {
   const fileTreeHtml = renderFileTree(fileTree);
 
   // Generate HTML
+  // Read favicon
+  const faviconPath = path.join(__dirname, '../public/favicon.ico');
+  let faviconData = '';
+  try {
+      if (fs.existsSync(faviconPath)) {
+          faviconData = fs.readFileSync(faviconPath).toString('base64');
+      }
+  } catch (e) {
+      console.warn('Could not read favicon.ico', e.message);
+  }
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    ${faviconData ? `<link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,${faviconData}" />` : ''}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESLint Report - SonarQube Style</title>
     <style>
@@ -622,7 +646,7 @@ async function generateHtmlLintReport() {
         .rule-name {
             font-family: 'Monaco', 'Menlo', monospace;
             font-size: 0.9rem;
-            color: #667eea;
+            color: #ef4444;
         }
 
         .badge {

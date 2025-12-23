@@ -58,6 +58,10 @@ export interface AnalysisOptions {
   // P3
   updateBaseline?: boolean;
   postMrComment?: boolean;
+  // Lint plugins toggles
+  disableUnicorn?: boolean;
+  disableUnicornPreventAbbr?: boolean;
+  disabledRules?: string;
 }
 
 export interface ReportSummary {

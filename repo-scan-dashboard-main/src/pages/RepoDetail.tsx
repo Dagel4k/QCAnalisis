@@ -142,6 +142,9 @@ export default function RepoDetail() {
         cloneTimeoutMs: s.cloneTimeoutMs,
         fetchTimeoutMs: s.fetchTimeoutMs,
         cmdTimeoutMs: s.cmdTimeoutMs,
+        disableUnicorn: s.disableUnicorn,
+        disableUnicornPreventAbbr: s.disableUnicornPreventAbbr,
+        disabledRules: s.disabledRules,
       };
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',

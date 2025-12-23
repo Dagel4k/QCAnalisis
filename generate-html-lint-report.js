@@ -559,6 +559,17 @@ async function generateHtmlLintReport() {
       noSonar = false,
       noSecurity = false,
     } = opts || {};
+    const envNoUnicorn = process.env.REPORT_NO_UNICORN === '1';
+    const envNoUnicornPreventAbbr = process.env.REPORT_NO_UNICORN_PREVENT_ABBR === '1';
+    const envDisabledRules = process.env.REPORT_DISABLED_RULES;
+    let disabledRulesConfig = {};
+    if (envDisabledRules) {
+        envDisabledRules.split(',').forEach(r => {
+            const rule = r.trim();
+            if (rule) disabledRulesConfig[rule] = 'off';
+        });
+    }
+
     // Construir una config mínima dinámica según paquetes disponibles
     const hasTsParserOld = canResolve('@typescript-eslint/parser');
     const hasTsParserNew = canResolve('typescript-eslint/parser');
@@ -567,7 +578,7 @@ async function generateHtmlLintReport() {
     const hasTsPlugin = canResolve('@typescript-eslint/eslint-plugin') || canResolve('typescript-eslint');
     const hasImport = !noImport && canResolve('eslint-plugin-import');
     const hasSonar = !noSonar && canResolve('eslint-plugin-sonarjs');
-    const hasUnicorn = !noUnicorn && canResolve('eslint-plugin-unicorn');
+    const hasUnicorn = !(noUnicorn || envNoUnicorn) && canResolve('eslint-plugin-unicorn');
     const hasSecurity = !noSecurity && canResolve('eslint-plugin-security');
 
     const hasImportResolverTs = canResolve('eslint-import-resolver-typescript');
@@ -584,7 +595,6 @@ async function generateHtmlLintReport() {
           'import/resolver': hasImportResolverTs
             ? {
                 typescript: {
-                  // Apunta al tsconfig del dashboard para resolver '@/*'
                   project: [
                     path.join(process.cwd(), 'repo-scan-dashboard-main', 'tsconfig.json'),
                   ],
@@ -592,11 +602,29 @@ async function generateHtmlLintReport() {
                 },
                 node: {
                   extensions: ['.ts', '.tsx', '.js', '.jsx'],
+                  // Ensure resolver can find nested project deps
+                  paths: [
+                    path.join(process.cwd(), 'repo-scan-dashboard-main', 'node_modules'),
+                    path.join(process.cwd(), 'node_modules'),
+                  ],
+                  moduleDirectory: [
+                    path.join(process.cwd(), 'repo-scan-dashboard-main', 'node_modules'),
+                    'node_modules',
+                  ],
                 },
               }
             : {
                 node: {
                   extensions: ['.ts', '.tsx', '.js', '.jsx'],
+                  // Ensure resolver can find nested project deps
+                  paths: [
+                    path.join(process.cwd(), 'repo-scan-dashboard-main', 'node_modules'),
+                    path.join(process.cwd(), 'node_modules'),
+                  ],
+                  moduleDirectory: [
+                    path.join(process.cwd(), 'repo-scan-dashboard-main', 'node_modules'),
+                    'node_modules',
+                  ],
                 },
               },
         } : {}),
@@ -631,6 +659,34 @@ async function generateHtmlLintReport() {
             // Evita ruido por alias '@/' si no está el resolver TS
             'import/no-unresolved': ['error', { ignore: ['^@/'] }],
           } : {}),
+          ...(envNoUnicornPreventAbbr ? { 'unicorn/prevent-abbreviations': 'off' } : {}),
+          ...disabledRulesConfig,
+        },
+      });
+      // Suavizar reglas en el servidor (TS ESM con extensiones .js en imports y alias) para evitar falsos positivos y ruido de estilo
+      base.overrides.push({
+        files: ['repo-scan-dashboard-main/server/**/*.ts'],
+        rules: {
+          'import/no-unresolved': 'off',
+          'unicorn/prefer-node-protocol': 'off',
+          'unicorn/prevent-abbreviations': 'off',
+          'unicorn/no-array-for-each': 'off',
+          'unicorn/no-null': 'off',
+        },
+      });
+
+      // Relax rules for tool/config files which often rely on devDeps and Node ESM quirks
+      base.overrides.push({
+        files: [
+          '**/*.config.{js,cjs,mjs,ts,mts}',
+          '**/vite.config.{js,cjs,mjs,ts,mts}',
+          '**/tailwind.config.{js,ts}',
+          '**/postcss.config.{js,ts}',
+        ],
+        rules: {
+          'import/no-unresolved': 'off',
+          'unicorn/prefer-node-protocol': 'off',
+          'unicorn/prefer-module': 'off',
         },
       });
     }
@@ -1137,11 +1193,23 @@ async function generateHtmlLintReport() {
     })
     .join(', ');
 
+  // Read favicon
+  const faviconPath = path.join(__dirname, 'favicon.ico');
+  let faviconData = '';
+  try {
+      if (fs.existsSync(faviconPath)) {
+          faviconData = fs.readFileSync(faviconPath).toString('base64');
+      }
+  } catch (e) {
+      console.warn('Could not read favicon.ico', e.message);
+  }
+
   // Generate HTML
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    ${faviconData ? `<link rel="icon" type="image/x-icon" href="data:image/x-icon;base64,${faviconData}" />` : ''}
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ESLint Report - SonarQube Style</title>
     <style>
@@ -1415,7 +1483,9 @@ async function generateHtmlLintReport() {
 
         .rules-table tr:hover { background: hsl(var(--secondary)); }
 
-        .rule-name { font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9rem; color: hsl(var(--primary)); }
+        .rule-name { font-family: 'Monaco', 'Menlo', monospace; font-size: 0.9rem; color: hsl(var(--destructive)); }
+        .rule-name a { color: inherit; text-decoration: none; }
+        .rule-name a:hover { text-decoration: underline; }
 
         .badge {
             display: inline-block;
