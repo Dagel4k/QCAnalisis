@@ -426,6 +426,16 @@ async function main() {
     try {
       appendLog(`\n==== Clonando ${task.repoUrl} @ ${branchName} (${task.slug}) ====`);
       const reuseClones = process.env.REUSE_CLONES === '1';
+      // Preparar URL (inyectar token si aplica) ANTES de posibles operaciones sobre el remote
+      let cloneUrl = task.repoUrl;
+      try {
+        if (opts.gitlabToken && /^https?:/i.test(task.repoUrl)) {
+          const u = new URL(task.repoUrl);
+          u.username = 'oauth2';
+          u.password = opts.gitlabToken;
+          cloneUrl = u.toString();
+        }
+      } catch (e) { (void e); }
       if (fs.existsSync(cloneDir)) {
         if (reuseClones) {
           appendLog(`Reusando clone existente en: ${cloneDir}`);
@@ -449,16 +459,7 @@ async function main() {
 
       // Shallow clone branch (silencioso para evitar falsos "ERROR" por salida en stderr)
       // Evitar cuelgues por prompts interactivos de credenciales
-      // Si hay token de GitLab y la URL es HTTPS, usar auth embebida oauth2:<token>
-      let cloneUrl = task.repoUrl;
-      try {
-        if (opts.gitlabToken && /^https?:/i.test(task.repoUrl)) {
-          const u = new URL(task.repoUrl);
-          u.username = 'oauth2';
-          u.password = opts.gitlabToken;
-          cloneUrl = u.toString();
-        }
-      } catch (e) { (void e); }
+      // cloneUrl ya considera token si aplica
       appendLog(`git clone --depth ${opts.depth} --branch ${branchName} --single-branch ${cloneUrl} ${cloneDir}`);
       if (!fs.existsSync(cloneDir)) {
         const cloneExtra = process.env.SPARSE_CHECKOUT === '1' || process.env.GIT_FILTER_BLOB_NONE === '1' ? '--filter=blob:none' : '';
@@ -560,9 +561,26 @@ async function main() {
             const raw = (diffRes.stdout || '');
             const files = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
             const filtered = files.filter(f => /\.(ts|tsx|js|jsx)$/i.test(f));
+            // Normaliza la ruta a la "casing" real en disco para evitar falsos positivos
+            // cuando solo cambió el case del nombre del archivo (Home.tsx -> home.tsx).
+            const normalizeCase = (p) => {
+              try {
+                const parts = p.split('/');
+                let cur = cloneDir;
+                for (const part of parts) {
+                  if (!part) continue;
+                  const list = fs.readdirSync(cur);
+                  const found = list.find((name) => name.toLowerCase() === part.toLowerCase());
+                  if (!found) return p; // fallback si no existe
+                  cur = path.join(cur, found);
+                }
+                return path.relative(cloneDir, cur);
+              } catch { return p; }
+            };
+            const normalized = filtered.map(normalizeCase);
             if (filtered.length > 0) {
-              overrideGlobs = filtered.join(',');
-              appendLog(`Analizando sólo ${filtered.length} archivo(s) cambiado(s).`);
+              overrideGlobs = normalized.join(',');
+              appendLog(`Analizando sólo ${normalized.length} archivo(s) cambiado(s).`);
             } else {
               appendLog('No se detectaron archivos de código cambiados; se analizará con globs por defecto.');
             }

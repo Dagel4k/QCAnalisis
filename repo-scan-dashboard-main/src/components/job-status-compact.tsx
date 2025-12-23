@@ -28,7 +28,7 @@ interface JobStatusCompactProps {
 export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: JobStatusCompactProps) {
   const [progressLocal, setProgressLocal] = useState(0);
   const [logsOpen, setLogsOpen] = useState(false);
-  const [fileLogs, setFileLogs] = useState<string | null>(null);
+  const [fileLogs, setFileLogs] = useState<string | undefined>(undefined);
   const [canceling, setCanceling] = useState(false);
 
   useEffect(() => {
@@ -115,13 +115,13 @@ export function JobStatusCompact({ job, onViewLogs, latestReportId, repoSlug }: 
                   const text = await resp.text();
                   setFileLogs(text);
                 } else {
-                  setFileLogs(null);
+                  setFileLogs(undefined);
                 }
               } catch {
-                setFileLogs(null);
+                setFileLogs(undefined);
               }
             } else if (open) {
-              setFileLogs(null);
+              setFileLogs(undefined);
             }
           }}>
             <DialogTrigger asChild>

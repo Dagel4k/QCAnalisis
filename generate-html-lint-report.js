@@ -655,10 +655,13 @@ async function generateHtmlLintReport() {
         ],
         settings: base.settings,
         rules: {
-          ...(hasImport && !hasImportResolverTs ? {
-            // Evita ruido por alias '@/' si no está el resolver TS
-            'import/no-unresolved': ['error', { ignore: ['^@/'] }],
-          } : {}),
+          ...(hasImport ? (() => {
+            // Configurar import/no-unresolved más tolerante para evitar falsos positivos por
+            // diferencias de mayúsculas/minúsculas y alias '@/' sin resolver TS.
+            const baseOpts = { caseSensitive: false, commonjs: true };
+            const opts = hasImportResolverTs ? baseOpts : { ...baseOpts, ignore: ['^@/'] };
+            return { 'import/no-unresolved': ['error', opts] };
+          })() : {}),
           ...(envNoUnicornPreventAbbr ? { 'unicorn/prevent-abbreviations': 'off' } : {}),
           ...disabledRulesConfig,
         },

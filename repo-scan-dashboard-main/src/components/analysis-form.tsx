@@ -8,6 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger, DialogClose } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChevronDown, Play, Search, Loader2 } from '@/icons';
+import { HelpHint } from '@/components/help-hint';
 import { AnalysisOptions } from '@/types';
 import { API_URL } from '@/lib/config-client';
 
@@ -155,7 +156,19 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
     <form onSubmit={handleSubmit} className="space-y-4 flex flex-col h-full">
       <div className="space-y-4">
         <div>
-          <Label htmlFor="mode" className="text-sm font-medium mb-1.5 block">Modo de análisis</Label>
+          <Label htmlFor="mode" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+            Modo de análisis
+            <HelpHint
+              title="Modo de análisis"
+              brief="Elige qué analizar: MRs o ramas."
+              detail={
+                "MRs: analiza merge requests filtrando por estado, rama destino y etiquetas. " +
+                "Todas las ramas (filtro): corre en todas las ramas que coincidan con un regex. " +
+                "Ramas específicas: selecciona manualmente una o varias. " +
+                "MRs específicos: elige MRs puntuales por título/ramas."
+              }
+            />
+          </Label>
           <Select value={mode} onValueChange={(v) => {
             setMode(v as 'mrs' | 'branches' | 'specific');
             setSelectedBranches([]);
@@ -175,7 +188,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         {mode === 'specific' && (
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Seleccionar ramas</Label>
+              <Label className="text-sm font-medium flex items-center gap-1">
+                Seleccionar ramas
+                <HelpHint
+                  title="Seleccionar ramas"
+                  brief="Elige manualmente qué ramas analizar."
+                  detail={"Puedes buscar, seleccionar individuales o todas. Ideal para validar cambios en ramas concretas."}
+                />
+              </Label>
               <Button
                 type="button"
                 variant="ghost"
@@ -239,7 +259,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         {mode === 'mrs-specific' && (
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">Seleccionar MRs ({mrState})</Label>
+              <Label className="text-sm font-medium flex items-center gap-1">
+                Seleccionar MRs ({mrState})
+                <HelpHint
+                  title="Seleccionar MRs"
+                  brief="Filtra y marca los MRs a analizar."
+                  detail={"Busca por título o ramas y selecciona uno o varios MRs específicos para ejecutar el análisis."}
+                />
+              </Label>
               <Button
                 type="button"
                 variant="ghost"
@@ -313,7 +340,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
 
         {mode === 'branches' && (
           <div>
-            <Label htmlFor="branchFilter" className="text-sm font-medium mb-1.5 block">Filtro de ramas (regex opcional)</Label>
+            <Label htmlFor="branchFilter" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+              Filtro de ramas (regex opcional)
+              <HelpHint
+                title="Filtro de ramas"
+                brief="Expresión regular para incluir ramas."
+                detail={"Ejemplos: ^feature/ | ^hotfix/ | (main|develop)$ . Si lo dejas vacío, se analizan todas las ramas."}
+              />
+            </Label>
             <Input
               id="branchFilter"
               value={branchFilter}
@@ -330,7 +364,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
         {mode === 'mrs' && (
           <div className="space-y-4">
             <div>
-              <Label htmlFor="mrState" className="text-sm font-medium mb-1.5 block">Estado de MRs</Label>
+              <Label htmlFor="mrState" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+                Estado de MRs
+                <HelpHint
+                  title="Estado de MRs"
+                  brief="Limita a MRs abiertos, mergeados o cerrados."
+                  detail={"Selecciona el estado de los MRs a considerar. Por defecto, 'Abiertos'."}
+                />
+              </Label>
               <Select value={mrState} onValueChange={(v) => setMrState(v as 'opened' | 'merged' | 'closed')}>
                 <SelectTrigger id="mrState" className="h-9 border-border/50">
                   <SelectValue />
@@ -343,7 +384,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
               </Select>
             </div>
             <div>
-              <Label htmlFor="mrTargetBranch" className="text-sm font-medium mb-1.5 block">Rama destino (opcional)</Label>
+              <Label htmlFor="mrTargetBranch" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+                Rama destino (opcional)
+                <HelpHint
+                  title="Rama destino"
+                  brief="Filtra MRs por su target branch."
+                  detail={"Ej.: main, develop, release/1.x. Solo se analizarán MRs cuya rama destino coincida."}
+                />
+              </Label>
               <Input
                 id="mrTargetBranch"
                 value={mrTargetBranch}
@@ -353,7 +401,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
               />
             </div>
             <div>
-              <Label htmlFor="mrLabels" className="text-sm font-medium mb-1.5 block">Etiquetas (separadas por coma)</Label>
+              <Label htmlFor="mrLabels" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+                Etiquetas (separadas por coma)
+                <HelpHint
+                  title="Etiquetas de MR"
+                  brief="Filtra MRs por labels asignadas."
+                  detail={"Escribe etiquetas separadas por coma (p.ej., bug, backend). Coinciden por nombre exacto."}
+                />
+              </Label>
               <Input
                 id="mrLabels"
                 value={mrLabels}
@@ -388,11 +443,25 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                     onCheckedChange={(v) => setOnlyChanged(v === true)}
                     className="border-border/50"
                   />
-                  <Label htmlFor="onlyChanged" className="cursor-pointer text-sm">Analizar solo archivos cambiados (MRs)</Label>
+                  <Label htmlFor="onlyChanged" className="cursor-pointer text-sm flex items-center gap-1">
+                    Analizar solo archivos cambiados (MRs)
+                    <HelpHint
+                      title="Solo archivos cambiados"
+                      brief="Reduce tiempo analizando solo cambios del MR."
+                      detail={"Considera únicamente los archivos modificados en el MR. Útil para feedback rápido; omite issues fuera del diff."}
+                    />
+                  </Label>
                 </div>
               )}
               <div>
-                <Label htmlFor="ignore" className="text-sm font-medium mb-1.5 block">Patrones a ignorar</Label>
+                <Label htmlFor="ignore" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+                  Patrones a ignorar
+                  <HelpHint
+                    title="Ignorar patrones"
+                    brief="Excluye rutas/archivos del análisis."
+                    detail={"Lista separada por comas. Ej.: **/*.test.ts, **/__tests__/**, dist/** . Se excluyen antes de lint/escaneo."}
+                  />
+                </Label>
                 <Textarea
                   id="ignore"
                   value={ignore}
@@ -403,7 +472,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                 />
               </div>
               <div>
-                <Label htmlFor="globs" className="text-sm font-medium mb-1.5 block">Globs a analizar</Label>
+                <Label htmlFor="globs" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+                  Globs a analizar
+                  <HelpHint
+                    title="Incluir globs"
+                    brief="Restringe qué archivos se analizan."
+                    detail={"Lista separada por comas con patrones de incluye. Ej.: src/**/*.{ts,tsx,js,jsx}. Si se deja vacío, se usan los defaults del analizador."}
+                  />
+                </Label>
                 <Textarea
                   id="globs"
                   value={globs}
@@ -414,7 +490,14 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                 />
               </div>
               <div>
-                <Label htmlFor="depth" className="text-sm font-medium mb-1.5 block">Profundidad de clonación</Label>
+                <Label htmlFor="depth" className="text-sm font-medium mb-1.5 flex items-center gap-1">
+                  Profundidad de clonación
+                  <HelpHint
+                    title="Depth de git clone"
+                    brief="Usa shallow clone para acelerar."
+                    detail={"'1' realiza un clon superficial (sin historial). Valores mayores descargan más historial. Afecta tiempos y espacio."}
+                  />
+                </Label>
                 <Input
                   id="depth"
                   type="number"
@@ -431,10 +514,24 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                   onCheckedChange={(checked) => setNoCleanup(checked === true)}
                   className="border-border/50"
                 />
-                <Label htmlFor="noCleanup" className="cursor-pointer text-sm">No limpiar clones temporales</Label>
+                <Label htmlFor="noCleanup" className="cursor-pointer text-sm flex items-center gap-1">
+                  No limpiar clones temporales
+                  <HelpHint
+                    title="Conservar clones temporales"
+                    brief="Útil para depurar, usa más espacio."
+                    detail={"No elimina el directorio temporal tras el análisis. Permite inspeccionar artefactos, pero puede llenar el disco."}
+                  />
+                </Label>
               </div>
               <div className="pt-2 border-t border-border/50">
-                <Label className="text-sm font-medium mb-2 block">Quality Gates (opcional)</Label>
+                <Label className="text-sm font-medium mb-2 flex items-center gap-1">
+                  Quality Gates (opcional)
+                  <HelpHint
+                    title="Quality Gates"
+                    brief="Condiciones para fallar el análisis."
+                    detail={"Puedes exigir 0 errores (Strict) o establecer límites máximos: errores, warnings, exports sin uso y % de duplicación. Si se superan, el job falla."}
+                  />
+                </Label>
                 <div className="flex items-center gap-2 mb-2">
                   <Checkbox
                     id="strict"
@@ -442,23 +539,58 @@ export function AnalysisForm({ repoSlug, repoUrl, onSubmit, disabled }: Analysis
                     onCheckedChange={(v) => setStrict(v === true)}
                     className="border-border/50"
                   />
-                  <Label htmlFor="strict" className="cursor-pointer text-sm">Strict mode (fallar si hay errores ESLint)</Label>
+                  <Label htmlFor="strict" className="cursor-pointer text-sm flex items-center gap-1">
+                    Strict mode (fallar si hay errores ESLint)
+                    <HelpHint
+                      title="Strict mode"
+                      brief="El job falla si hay errores ESLint."
+                      detail={"Actívalo para bloquear merges con errores. No afecta warnings, solo errores (severity: error)."}
+                    />
+                  </Label>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label htmlFor="maxErrors" className="text-xs font-medium mb-1 block">Máx. errores</Label>
+                    <Label htmlFor="maxErrors" className="text-xs font-medium mb-1 flex items-center gap-1">
+                      Máx. errores
+                      <HelpHint
+                        title="Máximo de errores"
+                        brief="Si se supera, el gate falla."
+                        detail={"Cantidad máxima de errores ESLint permitidos. Deja vacío para no aplicar límite."}
+                      />
+                    </Label>
                     <Input id="maxErrors" type="number" min="0" value={maxErrors} onChange={(e) => setMaxErrors(e.target.value)} className="h-9 border-border/50" />
                   </div>
                   <div>
-                    <Label htmlFor="maxWarnings" className="text-xs font-medium mb-1 block">Máx. warnings</Label>
+                    <Label htmlFor="maxWarnings" className="text-xs font-medium mb-1 flex items-center gap-1">
+                      Máx. warnings
+                      <HelpHint
+                        title="Máximo de warnings"
+                        brief="Limita avisos tolerados."
+                        detail={"Cantidad máxima de advertencias ESLint. Si se supera, el quality gate falla."}
+                      />
+                    </Label>
                     <Input id="maxWarnings" type="number" min="0" value={maxWarnings} onChange={(e) => setMaxWarnings(e.target.value)} className="h-9 border-border/50" />
                   </div>
                   <div>
-                    <Label htmlFor="maxUnused" className="text-xs font-medium mb-1 block">Máx. exports sin uso</Label>
+                    <Label htmlFor="maxUnused" className="text-xs font-medium mb-1 flex items-center gap-1">
+                      Máx. exports sin uso
+                      <HelpHint
+                        title="Exports sin uso"
+                        brief="Límite de símbolos sin uso."
+                        detail={"Cantidad máxima de exports reportados por ts-prune (o similar)."}
+                      />
+                    </Label>
                     <Input id="maxUnused" type="number" min="0" value={maxUnused} onChange={(e) => setMaxUnused(e.target.value)} className="h-9 border-border/50" />
                   </div>
                   <div>
-                    <Label htmlFor="maxDupPct" className="text-xs font-medium mb-1 block">Máx. % duplicación</Label>
+                    <Label htmlFor="maxDupPct" className="text-xs font-medium mb-1 flex items-center gap-1">
+                      Máx. % duplicación
+                      <HelpHint
+                        title="Duplicación de código"
+                        brief="Porcentaje máximo tolerado."
+                        detail={"Límite de porcentaje de duplicación (jscpd). Usa decimales si lo requieres (ej.: 5.5)."}
+                      />
+                    </Label>
                     <Input id="maxDupPct" type="number" min="0" step="0.01" value={maxDupPct} onChange={(e) => setMaxDupPct(e.target.value)} className="h-9 border-border/50" />
                   </div>
                 </div>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search, Code2, Loader2 } from '@/icons';
 import { Input } from '@/components/ui/input';
-import { RepoCard } from '@/components/repoCard';
+import { RepoCard } from '@/components/repo-card';
 import { RepositoryWithStatus } from '@/types';
 import { API_URL } from '@/lib/config-client';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { PaginationEllipsis, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
+import { HelpHint } from '@/components/help-hint';
 
 export default function Home() {
   const [repos, setRepos] = useState<RepositoryWithStatus[]>([]);
@@ -376,21 +377,42 @@ export default function Home() {
                 </DialogHeader>
                 <div className="grid gap-3">
                   <div className="grid gap-1.5">
-                    <Label htmlFor="repo-name">Nombre</Label>
+                    <Label htmlFor="repo-name" className="flex items-center gap-1">
+                      Nombre
+                      <HelpHint
+                        title="Nombre del repositorio"
+                        brief="Cómo se mostrará en la lista."
+                        detail={"Nombre legible para identificar el repositorio (no único)."}
+                      />
+                    </Label>
                     <Input id="repo-name" value={form.name} onChange={(e) => handleChange('name', e.target.value)} placeholder="Mi Proyecto" className={dupName ? 'border-destructive focus-visible:ring-destructive' : ''} />
                     {dupName && (
                       <div className="text-xs text-destructive">Ya existe un repositorio con este nombre</div>
                     )}
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor="repo-slug">Slug</Label>
+                    <Label htmlFor="repo-slug" className="flex items-center gap-1">
+                      Slug
+                      <HelpHint
+                        title="Slug"
+                        brief="Identificador único en minúsculas."
+                        detail={"Se usa en URLs y como clave interna. Solo letras, números y guiones. Ej.: mi-proyecto"}
+                      />
+                    </Label>
                     <Input id="repo-slug" value={form.slug} onChange={(e) => handleChange('slug', e.target.value)} placeholder="mi-proyecto" className={dupSlug ? 'border-destructive focus-visible:ring-destructive' : ''} />
                     {dupSlug && (
                       <div className="text-xs text-destructive">Ya existe un repositorio con este slug</div>
                     )}
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor="repo-url">Repo URL</Label>
+                    <Label htmlFor="repo-url" className="flex items-center gap-1">
+                      Repo URL
+                      <HelpHint
+                        title="URL del repositorio"
+                        brief="HTTPS (recomendado) o SSH."
+                        detail={"Ej.: https://gitlab.com/org/repo.git o git@gitlab.com:org/repo.git . Se valida conectividad básica."}
+                      />
+                    </Label>
                     <Input id="repo-url" value={form.repoUrl} onChange={(e) => handleChange('repoUrl', e.target.value)} onBlur={() => validateRepoServer(form.repoUrl)} placeholder="https://gitlab.com/org/repo.git" className={dupRepoUrl ? 'border-destructive focus-visible:ring-destructive' : ''} />
                     {dupRepoUrl && (
                       <div className="text-xs text-destructive">Esta URL ya está registrada</div>
@@ -405,14 +427,28 @@ export default function Home() {
                     )}
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor="repo-image">Imagen (opcional)</Label>
+                    <Label htmlFor="repo-image" className="flex items-center gap-1">
+                      Imagen (opcional)
+                      <HelpHint
+                        title="Imagen del proyecto"
+                        brief="URL pública de logo/imagen."
+                        detail={"Se muestra en la tarjeta del repo. Ej.: https://.../logo.png"}
+                      />
+                    </Label>
                     <Input id="repo-image" value={form.imageUrl} onChange={(e) => handleChange('imageUrl', e.target.value)} placeholder="https://.../logo.png" className={dupImageUrl ? 'border-destructive focus-visible:ring-destructive' : ''} />
                     {dupImageUrl && (
                       <div className="text-xs text-destructive">Esta imagen ya está asociada a otro repositorio</div>
                     )}
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor="repo-desc">Descripción (opcional)</Label>
+                    <Label htmlFor="repo-desc" className="flex items-center gap-1">
+                      Descripción (opcional)
+                      <HelpHint
+                        title="Descripción"
+                        brief="Texto corto para contexto."
+                        detail={"Se muestra en la tarjeta para facilitar la búsqueda y el contexto del proyecto."}
+                      />
+                    </Label>
                     <Textarea id="repo-desc" value={form.description} onChange={(e) => handleChange('description', e.target.value)} placeholder="Breve descripción" className={dupDescription ? 'border-destructive focus-visible:ring-destructive' : ''} />
                     {dupDescription && (
                       <div className="text-xs text-destructive">Esta descripción coincide con otro repositorio</div>
@@ -530,23 +566,58 @@ export default function Home() {
             </DialogHeader>
             <div className="grid gap-3">
               <div className="grid gap-1.5">
-                <Label htmlFor="edit-name">Nombre</Label>
+                <Label htmlFor="edit-name" className="flex items-center gap-1">
+                  Nombre
+                  <HelpHint
+                    title="Nombre del repositorio"
+                    brief="Cómo se mostrará en la lista."
+                    detail={"Nombre legible para identificar el repositorio (no único)."}
+                  />
+                </Label>
                 <Input id="edit-name" value={edit.name} onChange={(e) => handleEditChange('name', e.target.value)} placeholder="Mi Proyecto" />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="edit-slug">Slug</Label>
+                <Label htmlFor="edit-slug" className="flex items-center gap-1">
+                  Slug
+                  <HelpHint
+                    title="Slug"
+                    brief="Identificador único en minúsculas."
+                    detail={"Se usa en URLs y como clave interna. Solo letras, números y guiones. Ej.: mi-proyecto"}
+                  />
+                </Label>
                 <Input id="edit-slug" value={edit.slug} disabled className="opacity-70" />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="edit-url">Repo URL</Label>
+                <Label htmlFor="edit-url" className="flex items-center gap-1">
+                  Repo URL
+                  <HelpHint
+                    title="URL del repositorio"
+                    brief="HTTPS (recomendado) o SSH."
+                    detail={"Ej.: https://gitlab.com/org/repo.git o git@gitlab.com:org/repo.git . Se valida conectividad básica."}
+                  />
+                </Label>
                 <Input id="edit-url" value={edit.repoUrl} onChange={(e) => handleEditChange('repoUrl', e.target.value)} placeholder="https://gitlab.com/org/repo.git" />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="edit-image">Imagen (opcional)</Label>
+                <Label htmlFor="edit-image" className="flex items-center gap-1">
+                  Imagen (opcional)
+                  <HelpHint
+                    title="Imagen del proyecto"
+                    brief="URL pública de logo/imagen."
+                    detail={"Se muestra en la tarjeta del repo. Ej.: https://.../logo.png"}
+                  />
+                </Label>
                 <Input id="edit-image" value={edit.imageUrl} onChange={(e) => handleEditChange('imageUrl', e.target.value)} placeholder="https://.../logo.png" />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="edit-desc">Descripción (opcional)</Label>
+                <Label htmlFor="edit-desc" className="flex items-center gap-1">
+                  Descripción (opcional)
+                  <HelpHint
+                    title="Descripción"
+                    brief="Texto corto para contexto."
+                    detail={"Se muestra en la tarjeta para facilitar la búsqueda y el contexto del proyecto."}
+                  />
+                </Label>
                 <Textarea id="edit-desc" value={edit.description} onChange={(e) => handleEditChange('description', e.target.value)} placeholder="Breve descripción" />
               </div>
             </div>

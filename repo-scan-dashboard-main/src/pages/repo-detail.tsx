@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { AnalysisForm } from '@/components/analysisForm';
-import { JobStatusCompact } from '@/components/jobStatusCompact';
+import { AnalysisForm } from '@/components/analysis-form';
+import { JobStatusCompact } from '@/components/job-status-compact';
 import { toast } from '@/components/ui/sonner';
 import {
   PaginationEllipsis,
@@ -16,7 +16,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { Repository, ReportSummary, AnalysisJob, AnalysisOptions, HistoryEntry } from '@/types';
-import { SettingsDialog, getAnalyzerSettings } from '@/components/settingsDialog';
+import { SettingsDialog, getAnalyzerSettings } from '@/components/settings-dialog';
 import { API_URL } from '@/lib/config-client';
 import { cn } from '@/lib/utils';
 
@@ -126,6 +126,9 @@ export default function RepoDetail() {
   const handleAnalyze = async (options: AnalysisOptions) => {
     try {
       const s = getAnalyzerSettings();
+      const disabledRulesFinal = [s.disabledRules || '', s.disableImportUnresolved ? 'import/no-unresolved' : '']
+        .filter(Boolean)
+        .join(',');
       const merged: AnalysisOptions = {
         ...options,
         forceEslintConfig: s.forceEslintConfig,
@@ -144,7 +147,7 @@ export default function RepoDetail() {
         cmdTimeoutMs: s.cmdTimeoutMs,
         disableUnicorn: s.disableUnicorn,
         disableUnicornPreventAbbr: s.disableUnicornPreventAbbr,
-        disabledRules: s.disabledRules,
+        disabledRules: disabledRulesFinal,
       };
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',

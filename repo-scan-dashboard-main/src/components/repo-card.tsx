@@ -29,7 +29,7 @@ export function RepoCard({ repo, onEdit, onDelete }: RepoCardProps) {
 
   const status = repo.lastAnalysis
     ? statusConfig[repo.lastAnalysis.status]
-    : null;
+    : undefined;
 
   return (
     <Link to={`/repos/${repo.slug}`}>

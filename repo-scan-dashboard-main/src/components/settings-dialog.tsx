@@ -33,6 +33,7 @@ type AnalyzerSettings = {
   // Lint plugins toggles
   disableUnicorn: boolean;
   disableUnicornPreventAbbr: boolean;
+  disableImportUnresolved: boolean;
   disabledRules: string;
 };
 
@@ -55,6 +56,7 @@ const defaultSettings: AnalyzerSettings = {
   cmdTimeoutMs: undefined,
   disableUnicorn: false,
   disableUnicornPreventAbbr: false,
+  disableImportUnresolved: false,
   disabledRules: '',
 };
 
@@ -71,7 +73,7 @@ function loadSettings(): AnalyzerSettings {
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
   const [s, setS] = useState<AnalyzerSettings>(defaultSettings);
-  const [helpOpen, setHelpOpen] = useState<null | { title: string; detail: string }>(null);
+  const [helpOpen, setHelpOpen] = useState<undefined | { title: string; detail: string }>(undefined);
 
   const Help: React.FC<{ title: string; brief: string; detail: string }> = ({ title, brief, detail }) => (
     <Tooltip>
@@ -128,6 +130,15 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   detail="Puedes usar 'p/ci', reglas públicas o tu propio repositorio de reglas. Afecta el número y tipo de hallazgos SAST." />
               </Label>
               <Input id="semgrepConfig" value={s.semgrepConfig} onChange={(e) => setS({ ...s, semgrepConfig: e.target.value })} placeholder="p/ci" />
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <Checkbox id="disableImportUnresolved" checked={s.disableImportUnresolved} onCheckedChange={(v) => setS({ ...s, disableImportUnresolved: v === true })} />
+              <Label htmlFor="disableImportUnresolved" className="text-sm flex items-center gap-1">
+                Ignorar import/no-unresolved
+                <Help title="Desactivar import/no-unresolved"
+                  brief="Evita falsos positivos de imports no resueltos."
+                  detail="Desactiva la regla que marca imports 'no resueltos'. Útil cuando el runner no tiene el resolver de TypeScript o hay diferencias de mayúsculas/minúsculas en el sistema de archivos." />
+              </Label>
             </div>
           </div>
 
@@ -293,7 +304,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
         </div>
 
         {helpOpen && (
-          <Dialog open={!!helpOpen} onOpenChange={() => setHelpOpen(null)}>
+          <Dialog open={!!helpOpen} onOpenChange={() => setHelpOpen(undefined)}>
             <DialogContent className="sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>{helpOpen.title}</DialogTitle>
@@ -302,7 +313,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                 {helpOpen.detail}
               </div>
               <div className="flex justify-end mt-3">
-                <Button variant="outline" onClick={() => setHelpOpen(null)}>Cerrar</Button>
+                <Button variant="outline" onClick={() => setHelpOpen(undefined)}>Cerrar</Button>
               </div>
             </DialogContent>
           </Dialog>
