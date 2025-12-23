@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { spawnSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getRepositories, config } from '../../src/lib/config';
 import { ReportSummary, RepositoryWithStatus, HistoryEntry, Repository } from '../../src/types';
 
@@ -74,7 +74,7 @@ function findSummaryForRepo(repoSlug: string, repoUrl?: string): ReportSummary |
   const repoSummaryPath = path.join(config.storageDir, repoSlug, 'summary.json');
   if (fs.existsSync(repoSummaryPath)) {
     try {
-      const summary = JSON.parse(fs.readFileSync(repoSummaryPath, 'utf-8')) as RawReportSummary;
+      const summary = JSON.parse(fs.readFileSync(repoSummaryPath, 'utf8')) as RawReportSummary;
       return normalizeSummary(summary);
     } catch (error) {
       console.error(`Error reading repo summary:`, error);
@@ -84,7 +84,7 @@ function findSummaryForRepo(repoSlug: string, repoUrl?: string): ReportSummary |
   const summaryPath = path.join(config.storageDir, 'summary.json');
   if (fs.existsSync(summaryPath)) {
     try {
-      const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf-8')) as RawReportSummary;
+      const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8')) as RawReportSummary;
       if (summary.repo) {
         if (repoUrl && summary.repo === repoUrl) {
           return normalizeSummary(summary);
@@ -125,8 +125,8 @@ function reposWithStatusFrom(repos: Repository[]): RepositoryWithStatus[] {
         continue;
       }
       out.push(repo as RepositoryWithStatus);
-    } catch (e) {
-      console.warn('Failed to enrich repo summary:', repo.slug, e);
+    } catch (error) {
+      console.warn('Failed to enrich repo summary:', repo.slug, error);
       out.push(repo as RepositoryWithStatus);
     }
   }
@@ -192,7 +192,7 @@ reposRouter.get('/:slug/reports/:id', (req, res) => {
           const branch = summary.branches.find(b => {
             const branchName = b.name || '';
             const rpath = b.reportPath || '';
-            return branchName === id || rpath.includes(id) || rpath.includes(id.replace(/\//g, '-'));
+            return branchName === id || rpath.includes(id) || rpath.includes(id.replaceAll('/', '-'));
           });
           if (branch && branch.reportPath) {
             let relativePath: string;
@@ -255,7 +255,7 @@ reposRouter.get('/:slug/reports/:id/lint-summary.json', (req, res) => {
           const branch = summary.branches.find(b => {
             const branchName = b.name || '';
             const rpath = b.reportPath || '';
-            return branchName === id || rpath.includes(id) || rpath.includes(id.replace(/\//g, '-'));
+            return branchName === id || rpath.includes(id) || rpath.includes(id.replaceAll('/', '-'));
           });
           if (branch && branch.reportPath) {
             const rel = path.isAbsolute(branch.reportPath)
@@ -318,7 +318,7 @@ reposRouter.get('/:slug/reports/:id/logs', (req, res) => {
     const logPath = path.join(reportDir, 'analysis.log');
     if (!fs.existsSync(logPath)) return res.status(404).json({ error: 'Log not found' });
 
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Type', 'text/plain; charset=utf8');
     return res.sendFile(path.resolve(logPath));
   } catch (error) {
     console.error('Error serving logs:', error);
@@ -335,14 +335,14 @@ reposRouter.post('/import-default', (req, res) => {
       return res.status(404).json({ error: `repos.json not found at ${sourcePath}` });
     }
 
-    const raw = fs.readFileSync(sourcePath, 'utf-8');
+    const raw = fs.readFileSync(sourcePath, 'utf8');
     const parsed = JSON.parse(raw);
 
     // Optionally, try to write/ensure destination exists where getRepositories reads from
     try {
       const targetPath = path.join(config.storageDir, '..', 'repos.json');
       // Ensure dir exists (it should), then write
-      fs.writeFileSync(targetPath, JSON.stringify(parsed, null, 2), 'utf-8');
+      fs.writeFileSync(targetPath, JSON.stringify(parsed, null, 2), 'utf8');
     } catch (writeErr) {
       // Non-fatal: still return parsed content so UI can use it
       console.warn('Could not write repos.json to project root:', writeErr);
@@ -418,7 +418,7 @@ function verifyRepoReachable(repoUrl: string): { ok: boolean; reason?: string } 
     });
     if (res.status === 0) return { ok: true };
     return { ok: false, reason: 'Repositorio inexistente o sin acceso con las credenciales actuales' };
-  } catch (e) {
+  } catch (error) {
     return { ok: false, reason: 'Fallo al verificar el repositorio' };
   }
 }
@@ -479,7 +479,7 @@ reposRouter.post('/', (req, res) => {
     // Ensure directory exists
     const dir = path.dirname(targetPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf-8');
+    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf8');
 
     const enriched = reposWithStatusFrom(updated);
     return res.status(201).json(enriched);
@@ -546,7 +546,7 @@ reposRouter.patch('/:slug', (req, res) => {
     const targetPath = resolveReposJsonPath();
     const dir = path.dirname(targetPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf-8');
+    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf8');
 
     const enriched = reposWithStatusFrom(updated);
     return res.json(enriched);
@@ -569,7 +569,7 @@ reposRouter.delete('/:slug', (req, res) => {
     const targetPath = resolveReposJsonPath();
     const dir = path.dirname(targetPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf-8');
+    fs.writeFileSync(targetPath, JSON.stringify(updated, null, 2), 'utf8');
     const enriched = reposWithStatusFrom(updated);
     return res.json(enriched);
   } catch (error) {

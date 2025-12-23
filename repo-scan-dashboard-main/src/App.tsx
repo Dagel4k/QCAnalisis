@@ -1,8 +1,8 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Home from "./pages/Home";
+import Home from "./pages/home";
 import { lazy, Suspense, useEffect, useState, Fragment } from "react";
-const RepoDetail = lazy(() => import("./pages/RepoDetail"));
-import NotFound from "./pages/NotFound";
+const RepoDetail = lazy(() => import("./pages/repoDetail"));
+import NotFound from "./pages/notFound";
 
 const App = () => {
   const [TooltipProviderComp, setTooltipProviderComp] = useState<React.ComponentType<React.PropsWithChildren> | null>(null);
@@ -11,7 +11,7 @@ const App = () => {
   // Prefetch lazy route chunk on idle to improve next navigation
   useEffect(() => {
     const prefetch = () => {
-      import("./pages/RepoDetail").catch(() => {});
+      import("./pages/repoDetail").catch(() => {});
       // Defer non-critical UI providers to after first paint
       import("@/components/ui/tooltip").then((m) => setTooltipProviderComp(() => m.TooltipProvider)).catch(() => {});
       import("@/components/ui/toaster").then((m) => setToasterComp(() => m.Toaster)).catch(() => {});

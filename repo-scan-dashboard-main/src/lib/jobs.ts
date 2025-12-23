@@ -1,4 +1,4 @@
-import { AnalysisJob } from '@/types';
+import { AnalysisJob } from '@/types/index.js';
 import { EventEmitter } from 'events';
 
 class JobManager extends EventEmitter {

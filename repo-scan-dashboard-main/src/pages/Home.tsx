@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Search, Code2, Loader2 } from '@/icons';
 import { Input } from '@/components/ui/input';
-import { RepoCard } from '@/components/RepoCard';
+import { RepoCard } from '@/components/repoCard';
 import { RepositoryWithStatus } from '@/types';
 import { API_URL } from '@/lib/config-client';
 import { Button } from '@/components/ui/button';

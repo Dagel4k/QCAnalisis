@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { reposRouter } from './routes/repos.js';
 import { analyzeRouter } from './routes/analyze.js';
 import { jobsRouter } from './routes/jobs.js';
@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3001;
 const isProd = process.env.NODE_ENV === 'production';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
+const HEADER_CACHE_CONTROL = 'Cache-Control';
 
 // Trust proxy so req.secure reflects X-Forwarded-Proto in reverse proxies (support multi-hop)
 app.set('trust proxy', true);
@@ -152,9 +153,9 @@ app.get('/api/health', (req, res) => {
       cacheControl: true,
       setHeaders: (res, resourcePath) => {
         if (/\.(?:js|css|woff2?|ttf|otf|png|jpg|jpeg|gif|webp|svg)($|\?)/i.test(resourcePath)) {
-          res.setHeader('Cache-Control', isProd ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate');
+          res.setHeader(HEADER_CACHE_CONTROL, isProd ? 'public, max-age=31536000, immutable' : 'public, max-age=0, must-revalidate');
         } else {
-          res.setHeader('Cache-Control', isProd ? 'public, max-age=300' : 'no-store');
+          res.setHeader(HEADER_CACHE_CONTROL, isProd ? 'public, max-age=300' : 'no-store');
         }
       },
     })
@@ -163,7 +164,7 @@ app.get('/api/health', (req, res) => {
   // SPA fallback (Express 5): usar app.use sin patrón y no interceptar /api
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader(HEADER_CACHE_CONTROL, 'no-store');
     res.sendFile(clientIndex);
   });
 })();

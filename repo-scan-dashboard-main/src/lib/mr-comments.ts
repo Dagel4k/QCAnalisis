@@ -1,8 +1,8 @@
-import fs from 'fs';
-import path from 'path';
-import { config, getRepository } from './config';
-import { getProjectIdFromRepoUrl, postMrCommentDirect } from './gitlab';
-import { jobManager } from './jobs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { config, getRepository } from './config.js';
+import { getProjectIdFromRepoUrl, postMrCommentDirect } from './gitlab.js';
+import { jobManager } from './jobs.js';
 
 type LintSummary = {
   generatedAt?: string;

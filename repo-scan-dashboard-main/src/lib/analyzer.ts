@@ -1,9 +1,9 @@
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
-import path from 'path';
-import { config, ensureDirectories } from './config';
-import { AnalysisOptions } from '@/types';
-import { jobManager } from './jobs';
-import { postMrCommentsForRepo } from './mr-comments';
+import { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import path from 'node:path';
+import { config, ensureDirectories } from './config.js';
+import { AnalysisOptions } from '@/types/index.js';
+import { jobManager } from './jobs.js';
+import { postMrCommentsForRepo } from './mr-comments.js';
 
 export async function runAnalysis(
   jobId: string,

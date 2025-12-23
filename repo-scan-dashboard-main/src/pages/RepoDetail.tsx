@@ -5,8 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { AnalysisForm } from '@/components/AnalysisForm';
-import { JobStatusCompact } from '@/components/JobStatusCompact';
+import { AnalysisForm } from '@/components/analysisForm';
+import { JobStatusCompact } from '@/components/jobStatusCompact';
 import { toast } from '@/components/ui/sonner';
 import {
   PaginationEllipsis,
@@ -16,7 +16,7 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { Repository, ReportSummary, AnalysisJob, AnalysisOptions, HistoryEntry } from '@/types';
-import { SettingsDialog, getAnalyzerSettings } from '@/components/SettingsDialog';
+import { SettingsDialog, getAnalyzerSettings } from '@/components/settingsDialog';
 import { API_URL } from '@/lib/config-client';
 import { cn } from '@/lib/utils';
 

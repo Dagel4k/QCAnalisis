@@ -4,6 +4,7 @@ import { cancelAnalysis } from '../../src/lib/analyzer.js';
 import type { AnalysisJob } from '../../src/types/index.js';
 
 export const jobsRouter = Router();
+const ERR_JOB_NOT_FOUND = 'Job not found';
 
 // GET /api/jobs/:id/status - Get job status
 jobsRouter.get('/:id/status', (req, res) => {
@@ -12,7 +13,7 @@ jobsRouter.get('/:id/status', (req, res) => {
     const job = jobManager.getJob(id);
     
     if (!job) {
-      return res.status(404).json({ error: 'Job not found' });
+      return res.status(404).json({ error: ERR_JOB_NOT_FOUND });
     }
     
     res.json(job);
@@ -28,7 +29,7 @@ jobsRouter.get('/:id/stream', (req, res) => {
   const job = jobManager.getJob(id);
   
   if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
+    return res.status(404).json({ error: ERR_JOB_NOT_FOUND });
   }
   
   // Set headers for SSE
@@ -79,7 +80,7 @@ jobsRouter.get('/:id/stream', (req, res) => {
 jobsRouter.post('/:id/cancel', (req, res) => {
   const { id } = req.params;
   const job = jobManager.getJob(id);
-  if (!job) return res.status(404).json({ error: 'Job not found' });
+  if (!job) return res.status(404).json({ error: ERR_JOB_NOT_FOUND });
   if (job.status !== 'running') return res.status(409).json({ error: 'Job is not running' });
 
   const ok = cancelAnalysis(id);

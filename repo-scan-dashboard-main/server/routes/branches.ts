@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import https from 'https';
+import https from 'node:https';
 import { getRepository, config } from '../../src/lib/config';
 
 export const branchesRouter = Router();
@@ -29,7 +29,7 @@ function gitlabApiGetJson(baseUrl: string, token: string, pathname: string, quer
   const pathNoLead = pathname.replace(/^\//, '');
   const urlObj = new URL(base + pathNoLead);
   Object.entries(query).forEach(([k, v]) => {
-    if (v !== undefined && v !== null && `${v}`.length) {
+    if (v !== undefined && v !== null && String(v).length > 0) {
       urlObj.searchParams.set(k, String(v));
     }
   });
@@ -45,7 +45,7 @@ function gitlabApiGetJson(baseUrl: string, token: string, pathname: string, quer
           try {
             const json = JSON.parse(Buffer.concat(chunks).toString('utf8'));
             resolve({ json });
-          } catch (e) {
+          } catch {
             reject(new Error(`Respuesta no JSON de ${urlObj.href}`));
           }
         } else {
@@ -89,7 +89,7 @@ branchesRouter.get('/:slug', async (req, res) => {
 
     // Type guard to ensure we have an array of branches
     if (!Array.isArray(branches)) {
-      throw new Error('La respuesta de la API de GitLab no es un array de ramas');
+      throw new TypeError('La respuesta de la API de GitLab no es un array de ramas');
     }
 
     const branchList = branches.map((b: GitlabBranch) => ({
@@ -106,4 +106,3 @@ branchesRouter.get('/:slug', async (req, res) => {
     });
   }
 });
-

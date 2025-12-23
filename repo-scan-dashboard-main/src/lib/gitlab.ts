@@ -1,4 +1,4 @@
-import { config } from './config';
+import { config } from './config.js';
 
 type GitLabProject = { id: number; path_with_namespace: string };
 
@@ -32,6 +32,13 @@ async function gitlabRequestDirect<T>(base: string, token: string, path: string,
     throw new Error(`GitLab request failed: ${resp.status} ${resp.statusText} ${detail}`);
   }
   return resp.json() as Promise<T>;
+}
+
+async function gitlabRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const base = (config.gitlabBase || '').trim();
+  const token = (config.gitlabToken || '').trim();
+  if (!base) throw new Error('GITLAB_BASE not configured');
+  return gitlabRequestDirect<T>(base, token, path, init);
 }
 
 export async function getProjectIdFromRepoUrl(repoUrl: string): Promise<number> {

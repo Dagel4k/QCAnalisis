@@ -13,13 +13,6 @@ type GitLabMr = {
   state?: string;
 };
 
-async function gitlabRequest<T>(base: string, token: string, path: string): Promise<T> {
-  const url = `${base.replace(/\/$/, '')}${path}`;
-  const resp = await fetch(url, { headers: { 'PRIVATE-TOKEN': token } });
-  if (!resp.ok) throw new Error(`GitLab request failed: ${resp.status} ${resp.statusText}`);
-  return resp.json() as Promise<T>;
-}
-
 // GET /api/mrs/:slug?state=opened
 mrsRouter.get('/:slug', async (req, res) => {
   try {

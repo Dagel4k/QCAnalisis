@@ -1,7 +1,7 @@
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { Repository } from '@/types';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Repository } from '@/types/index.js';
 
 // Lightweight .env loader to ensure server routes have tokens/config without extra deps
 function loadEnvFromFile(filePath: string | undefined) {
@@ -127,13 +127,13 @@ export function getRepositories(): Repository[] {
     if (!fs.existsSync(reposPath)) {
       const dashboardReposPath = path.join(process.cwd(), 'repos.json');
       if (fs.existsSync(dashboardReposPath)) {
-        const content = fs.readFileSync(dashboardReposPath, 'utf-8');
+        const content = fs.readFileSync(dashboardReposPath, 'utf8');
         return JSON.parse(content);
       }
       console.warn('repos.json not found, returning empty array');
       return [];
     }
-    const content = fs.readFileSync(reposPath, 'utf-8');
+    const content = fs.readFileSync(reposPath, 'utf8');
     return JSON.parse(content);
   } catch (error) {
     console.error('Error reading repos.json:', error);
