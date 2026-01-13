@@ -10,6 +10,8 @@
     "resolveJsonModule": true,
     "outDir": "./dist",
     "baseUrl": ".",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "paths": {
       "@/*": ["../src/*"]
     }

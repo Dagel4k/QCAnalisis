@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getRepositories, config } from '../../src/lib/config';
-import { ReportSummary, RepositoryWithStatus, HistoryEntry, Repository } from '../../src/types';
+import { getRepositories, config } from '../../src/lib/config.ts';
+import { ReportSummary, RepositoryWithStatus, HistoryEntry, Repository } from '../../src/types/index.ts';
 
 export const reposRouter = Router();
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import https from 'node:https';
-import { getRepository, config } from '../../src/lib/config';
+import { getRepository, config } from '../../src/lib/config.ts';
 
 export const branchesRouter = Router();
 
