@@ -251,8 +251,9 @@ async function main() {
                 totalIssues: (reportData.summary.errors || 0) + (reportData.summary.warnings || 0),
                 errorCount: reportData.summary.errors || 0,
                 warningCount: reportData.summary.warnings || 0,
-                security: { count: (reportData.semgrep?.length || 0) + (reportData.gitleaks?.length || 0) },
-                tsPrune: reportData.tsPrune,
+                security: { count: (reportData.semgrep?.findings?.length || 0) + (reportData.gitleaks?.findings?.length || 0) },
+                knip: reportData.knip,
+                architecture: reportData.depCruiser,
                 jscpd: reportData.jscpd,
                 qualityGate: { passed: true }
               };

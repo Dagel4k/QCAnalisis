@@ -85,6 +85,8 @@ export interface AnalysisMetrics {
   errorCount?: number;
   warningCount?: number;
   tsPrune?: { count: number };
+  knip?: { findings?: any[] };
+  architecture?: { findings?: any[] };
   jscpd?: { count: number; percentage?: number };
   security?: { count: number };
   dependencies?: { count: number };
