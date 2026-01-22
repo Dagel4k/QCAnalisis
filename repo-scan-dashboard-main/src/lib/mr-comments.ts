@@ -68,13 +68,16 @@ export async function postMrCommentsForRepo(jobId: string, repoSlug: string): Pr
     const byMr = new Map<number | string, Candidate>();
     for (const mr of mrs) {
       const iid = mr.iid;
-      const reportRel: string | undefined = mr.report;
+      const reportRel: string | undefined = mr.report || mr.reportPath;
       if (!iid || !reportRel) continue;
-      const reportAbs = path.isAbsolute(reportRel) ? reportRel : path.resolve(config.storageDir, '..', reportRel);
+
+      const reportAbs = path.isAbsolute(reportRel) ? reportRel : path.resolve(repoDir, reportRel);
       const runDir = path.dirname(reportAbs);
       const lintSummaryPath = path.join(runDir, 'lint-summary.json');
+
       const lint: LintSummary | null = readJsonSafe<LintSummary>(lintSummaryPath);
       if (!lint || !lint.generatedAt) continue;
+
       const gen = new Date(lint.generatedAt).getTime();
       if (Number.isFinite(gen)) {
         if (windowStart && finishedAt && (gen < windowStart || gen > finishedAt + 5 * 60 * 1000)) {
@@ -139,7 +142,7 @@ export async function postMrCommentsForRepo(jobId: string, repoSlug: string): Pr
             `[INFO] MR-comments: comentario publicado en MR !${c.iid} (${stamp})`,
           ].join('\n');
           fs.appendFileSync(logPath, `${lines}\n`, 'utf8');
-        } catch {}
+        } catch { }
         posted++;
         jobManager.addLog(jobId, `✓ Comentario publicado en MR !${c.iid}`);
       } catch (e: any) {
@@ -147,7 +150,7 @@ export async function postMrCommentsForRepo(jobId: string, repoSlug: string): Pr
         try {
           const logPath = path.join(c.runDir, 'analysis.log');
           fs.appendFileSync(logPath, `\n[ERROR] MR-comments: fallo al comentar en MR !${c.iid}: ${e?.message || e}\n`, 'utf8');
-        } catch {}
+        } catch { }
       }
     }
     jobManager.addLog(jobId, `[INFO] MR-comments resumen: intentados ${attempted}, publicados ${posted}`);

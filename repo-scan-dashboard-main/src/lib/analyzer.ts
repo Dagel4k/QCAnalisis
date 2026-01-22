@@ -116,7 +116,7 @@ export async function runAnalysis(
     setPhase('initializing', 1);
 
     const projectRoot = path.dirname(path.dirname(config.reviewScriptPath));
-    
+
     const envExtras: Record<string, string | undefined> = {
       REPORT_STRICT: options.qualityGates?.strict ? '1' : undefined,
       REPORT_MAX_ERRORS: typeof options.qualityGates?.maxErrors === 'number' ? String(options.qualityGates!.maxErrors) : undefined,
