@@ -91,7 +91,7 @@ app.use((req, res, next) => {
   const csp = isProd
     ? [
         "default-src 'self'",
-        "script-src 'self'",
+        "script-src 'self' https://cdnjs.cloudflare.com",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https:",
@@ -102,7 +102,7 @@ app.use((req, res, next) => {
       ].join('; ')
     : [
         "default-src 'self' data: blob:",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data: https:",
