@@ -56,9 +56,8 @@ export async function postMrCommentsForRepo(jobId: string, repoSlug: string): Pr
     const job = jobManager.getJob(jobId);
     const startedAt = job?.startedAt ? new Date(job.startedAt).getTime() : undefined;
     const finishedAt = job?.finishedAt ? new Date(job.finishedAt).getTime() : undefined;
-    const windowStart = startedAt ? startedAt - 5 * 60 * 1000 : undefined; // 5 min before start
+    const windowStart = startedAt ? startedAt - 5 * 60 * 1000 : undefined;
 
-    // Reunir candidatos por MR y elegir el run más reciente por iid
     type Candidate = {
       iid: number | string;
       runDir: string;

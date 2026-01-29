@@ -10,8 +10,8 @@ export interface AnalysisJob {
   id: string;
   repoSlug: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
-  progress?: number; // 0-100
-  phase?: string;    // current phase label (e.g., 'cloning','linting','report')
+  progress?: number;
+  phase?: string;
   mode: 'mrs' | 'mrs-specific' | 'branches' | 'specific';
   options: AnalysisOptions;
   startedAt?: Date;
@@ -27,12 +27,12 @@ export interface AnalysisOptions {
   mrState?: 'opened' | 'merged' | 'closed';
   mrTargetBranch?: string;
   mrLabels?: string[];
-  mrsIids?: Array<number | string>; // specific MR selection
+  mrsIids?: Array<number | string>;
   ignore?: string[];
   globs?: string[];
   depth?: number;
   noCleanup?: boolean;
-  onlyChanged?: boolean; // analyze only changed files in MRs
+  onlyChanged?: boolean;
   qualityGates?: {
     strict?: boolean;
     maxErrors?: number;
@@ -50,8 +50,8 @@ export interface AnalysisOptions {
   maxSast?: number;
   maxSecrets?: number;
   maxDepVulns?: number;
-  lightClone?: boolean; // git --filter=blob:none
-  reuseClones?: boolean; // reuse existing clones safely
+  lightClone?: boolean;
+  reuseClones?: boolean;
   cloneTimeoutMs?: number;
   fetchTimeoutMs?: number;
   cmdTimeoutMs?: number;
@@ -94,13 +94,12 @@ export interface AnalysisMetrics {
 }
 
 export interface HistoryEntry {
-  id: string;            // unique run id (folder name)
+  id: string;
   type: 'mr' | 'branch';
-  name: string;          // branch or sourceBranch
-  report: string;        // relative path to html
-  generatedAt: string;   // ISO
+  name: string;
+  report: string;
+  generatedAt: string;
   metrics?: AnalysisMetrics;
-  // MR-specific optional fields
   iid?: number | string;
   title?: string;
   sourceBranch?: string;

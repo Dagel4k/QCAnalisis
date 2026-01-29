@@ -22,5 +22,10 @@
     "name": "Analisis de codes",
     "repoUrl": "https://gitlab.prestavale.mx/Daniel_P/QCAnalisis.git",
     "description": "Dashboard analizador de codigos del pepe"
+  },
+  {
+    "slug": "s",
+    "name": "Sunflow frontend",
+    "repoUrl": "https://gitlab.prestavale.mx/zazpayv2/sunflow"
   }
 ]

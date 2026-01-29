@@ -14,8 +14,18 @@
     "eslint:gen": "node scripts/generate-eslintrc.js --preset typescript-default",
     "dev-tools:pack": "cd packages/dev-tools && npm pack"
   },
+  "dependencies": {
+    "stream-chain": "^2.2.5",
+    "stream-json": "^1.8.0"
+  },
   "devDependencies": {
-    "@scriptc/dev-tools": "file:packages/dev-tools"
+    "@scriptc/dev-tools": "file:packages/dev-tools",
+    "@types/eslint": "^9.6.1",
+    "@types/node": "^20.0.0",
+    "@types/stream-chain": "^2.1.0",
+    "@types/stream-json": "^1.7.8",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
   },
   "keywords": [
     "eslint",

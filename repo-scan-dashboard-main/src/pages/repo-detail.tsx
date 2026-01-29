@@ -258,7 +258,6 @@ export default function RepoDetail() {
       }, 2000);
     };
 
-    // start polling without blocking the caller
     start();
 
     return () => {
