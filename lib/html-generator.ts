@@ -757,7 +757,12 @@ export class HtmlGenerator {
                 
                 html += issues.slice(0, 500).map(i => 
                     '<div class="issue-card">' + 
-                        '<div class="issue-header"><span class="badge ' + i.severity + '">' + i.severity + '</span> ' + i.path + ':' + i.line + ' <span class="issue-message">' + escapeHtml(i.message) + '</span></div>' + 
+                        '<div class="issue-header">' + 
+                            '<span class="badge ' + i.severity + '">' + i.severity + '</span>' + 
+                            '<span class="tool-badge" style="margin-left:8px; background:#3f3f46; color:#d4d4d8; padding:1px 6px; border-radius:4px; font-size:0.7rem;">' + (i.tool || 'Unknown') + '</span>' + 
+                            '<span style="margin-left:8px; opacity:0.7">' + i.path + ':' + i.line + '</span>' + 
+                            '<span class="issue-message" style="margin-left:auto">' + escapeHtml(i.message) + '</span>' + 
+                        '</div>' + 
                         '<div class="snippet">' + renderSnippet(i.snippet) + '</div>' + 
                     '</div>'
                 ).join('');
@@ -891,7 +896,12 @@ export class HtmlGenerator {
                 
                 html += issues.slice(0, 500).map(i => 
                     '<div class="issue-card">' + 
-                        '<div class="issue-header"><span class="badge ' + i.severity + '">' + i.severity + '</span> ' + i.path + ':' + i.line + ' <span class="issue-message">' + escapeHtml(i.message) + '</span></div>' + 
+                        '<div class="issue-header">' + 
+                            '<span class="badge ' + i.severity + '">' + i.severity + '</span>' + 
+                            '<span class="tool-badge" style="margin-left:8px; background:#3f3f46; color:#d4d4d8; padding:1px 6px; border-radius:4px; font-size:0.7rem;">' + (i.tool || 'Unknown') + '</span>' + 
+                            '<span style="margin-left:8px; opacity:0.7">' + i.path + ':' + i.line + '</span>' + 
+                            '<span class="issue-message" style="margin-left:auto">' + escapeHtml(i.message) + '</span>' + 
+                        '</div>' + 
                         '<div class="snippet">' + renderSnippet(i.snippet) + '</div>' + 
                     '</div>'
                 ).join('');

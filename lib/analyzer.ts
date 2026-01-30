@@ -10,6 +10,8 @@ import { Scanner, ScanResult } from './scanners/scanner.interface';
 import { KnipScanner } from './scanners/knip.scanner';
 import { SemgrepScanner } from './scanners/semgrep.scanner';
 import { GitleaksScanner } from './scanners/gitleaks.scanner';
+import { OsvScanner } from './scanners/osv.scanner';
+import { JscpdScanner } from './scanners/jscpd.scanner';
 
 export interface AnalyzerOptions {
     cwd: string;
@@ -66,7 +68,9 @@ export class Analyzer {
         this.scanners = [
             new KnipScanner(),
             new SemgrepScanner(),
-            new GitleaksScanner()
+            new GitleaksScanner(),
+            new OsvScanner(),
+            new JscpdScanner()
         ];
     }
 
@@ -81,7 +85,6 @@ export class Analyzer {
         return p;
     }
 
-    // ... (ESLint logic remains similar but simplified types)
     private async runEslint(): Promise<ESLint.LintResult[]> {
         const patterns = this.globs ? (Array.isArray(this.globs) ? this.globs : [this.globs]) : ['src/**/*.{js,ts,tsx,jsx}'];
         const defaultIgnores = ['**/node_modules/**', '**/dist/**', '**/build/**'];
@@ -198,44 +201,6 @@ export class Analyzer {
         };
     }
 
-    // Keep legacy runners for tools not yet migrated to Strategy
-    private runJscpd(): any {
-        if (this.options.noJscpd) return { status: 'skipped', count: 0, percentage: 0, duplicates: [] };
-        try {
-            this.logger.log('[Analyzer] Running jscpd...');
-            const tempFile = path.join(this.cwd, 'reports', 'jscpd-report.json');
-
-            const localBin = path.join(this.cwd, 'node_modules', '.bin', process.platform === 'win32' ? 'jscpd.cmd' : 'jscpd');
-            const ignoreArg = this.ignorePatterns.length
-                ? ` --ignore "${this.ignorePatterns.map(p => this.normalizeIgnorePattern(p)).join(',')}"`
-                : '';
-
-            let baseCmd = `npx jscpd src --reporters json --output reports --threshold 100 --exitCode 0${ignoreArg}`;
-            if (fs.existsSync(localBin)) {
-                baseCmd = `"${localBin}" src --reporters json --output reports --threshold 100 --exitCode 0${ignoreArg}`;
-            }
-
-            try {
-                require('child_process').execSync(baseCmd, { cwd: this.cwd, encoding: 'utf-8', stdio: 'pipe' });
-            } catch (e) { /* ignore non-zero exit */ }
-
-            if (fs.existsSync(tempFile)) {
-                const content = fs.readFileSync(tempFile, 'utf-8');
-                const result = JSON.parse(content);
-                return {
-                    status: 'success',
-                    count: (result.duplicates || []).length,
-                    percentage: result.statistics?.percentage || 0,
-                    duplicates: (result.duplicates || []).slice(0, 50)
-                };
-            }
-            return { status: 'success', count: 0, percentage: 0, duplicates: [] };
-        } catch (e: any) {
-            this.logger.error(`[Analyzer] JSCPD failed: ${e.message}`);
-            return { status: 'error', error: e.message, count: 0, percentage: 0, duplicates: [] };
-        }
-    }
-
     private async runDepCruiser(): Promise<any> {
         if (this.options.noDepCruiser) return { status: 'skipped', findings: [] };
         return { status: 'skipped', findings: [] };
@@ -247,7 +212,6 @@ export class Analyzer {
 
         // 1. Run Legacy Tools
         const eslintPromise = this.runEslint();
-        const jscpdPromise = Promise.resolve(this.runJscpd());
         // const depCruiserPromise = this.runDepCruiser();
 
         // 2. Run Strategy Scanners
@@ -259,9 +223,8 @@ export class Analyzer {
         });
 
         // 3. Await All
-        const [eslintResults, jscpd, ...scanResults] = await Promise.all([
+        const [eslintResults, ...scanResults] = await Promise.all([
             eslintPromise,
-            jscpdPromise,
             ...scanPromises
         ]);
 
@@ -269,6 +232,8 @@ export class Analyzer {
         const knipResult = scanResults.find(r => r.tool === 'Knip');
         const semgrepResult = scanResults.find(r => r.tool === 'Semgrep');
         const gitleaksResult = scanResults.find(r => r.tool === 'Gitleaks');
+        const osvResult = scanResults.find(r => r.tool === 'OSV-Scanner');
+        const jscpdResult = scanResults.find(r => r.tool === 'JSCPD');
 
         // Calculate total errors and warnings including all scanners
         let totalErrors = eslintResults.reduce((a, b) => a + b.errorCount, 0);
@@ -292,10 +257,21 @@ export class Analyzer {
         if (knipResult?.findings) addFindingsToSummary(knipResult.findings);
         if (semgrepResult?.findings) addFindingsToSummary(semgrepResult.findings);
         if (gitleaksResult?.findings) addFindingsToSummary(gitleaksResult.findings);
+        if (osvResult?.findings) addFindingsToSummary(osvResult.findings);
+
+        // JSCPD Legacy Object Reconstruction
+        let jscpdLegacy = { count: 0, percentage: 0, duplicates: [] };
+        if (jscpdResult && jscpdResult.summary && jscpdResult.summary.duplicates) {
+            jscpdLegacy = {
+                count: jscpdResult.summary.duplicates.length,
+                percentage: jscpdResult.summary.percentage || 0,
+                duplicates: jscpdResult.summary.duplicates
+            };
+        }
 
         // JSCPD duplicates are counted as warnings in the report (2 warnings per duplicate)
-        if (jscpd?.count) {
-            totalWarnings += (jscpd.count * 2);
+        if (jscpdLegacy.count) {
+            totalWarnings += (jscpdLegacy.count * 2);
         }
 
         return {
@@ -307,9 +283,9 @@ export class Analyzer {
                 files: eslintResults.length
             },
             results: eslintResults,
-            jscpd,
+            jscpd: jscpdLegacy,
             semgrep: semgrepResult ? { findings: semgrepResult.findings } : { findings: [] },
-            osv: { findings: [] }, // TODO: Migrate OSV
+            osv: osvResult ? { findings: osvResult.findings } : { findings: [] },
             gitleaks: gitleaksResult ? { findings: gitleaksResult.findings } : { findings: [] },
             knip: knipResult ? { findings: knipResult.findings } : { findings: [] },
             depCruiser: { findings: [] }

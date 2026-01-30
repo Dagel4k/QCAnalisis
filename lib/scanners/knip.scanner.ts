@@ -10,6 +10,113 @@ export class KnipScanner implements Scanner {
         return !options.noKnip;
     }
 
+    /**
+     * Filter out common false positives from Knip findings.
+     * Many legitimate binaries and dependencies are flagged incorrectly.
+     */
+    private filterFalsePositives(findings: ScanFinding[], projectRoot: string): ScanFinding[] {
+        // Common binaries that are typically false positives
+        const COMMON_BINARIES_WHITELIST = [
+            'react-scripts', 'serve', 'vite', 'webpack-dev-server', 'webpack',
+            'eslint', 'prettier', 'stylelint', 'tsc', 'tslint',
+            'husky', 'lint-staged', 'plop', 'hygen',
+            'snyk', 'i18next-scanner', 'babel', 'esbuild',
+            'jest', 'vitest', 'mocha', 'ava', 'cypress', 'playwright',
+            'next', 'nuxt', 'remix', 'astro',
+            'rollup', 'parcel', 'turbo', 'nx'
+        ];
+
+        // Specific packages that are commonly false positives (exact match)
+        // These are development/build tools that Knip often incorrectly flags
+        const COMMON_DEV_DEPENDENCIES = [
+            'husky', 'lint-staged', 'prettier', 'stylelint',
+            'plop', 'hygen', 'serve', 'i18next-scanner',
+            'react-is', 'react-test-renderer', 'jest-styled-components',
+            'less', 'sass', 'node-sass', 'semver',
+            'inquirer', 'inquirer-directory', 'shelljs', 'chalk',
+            'cross-env', 'dotenv', 'rimraf', 'ts-node',
+            'subscriptions-transport-ws', 'graphql-subscriptions'
+        ];
+
+        // Dependency patterns that are commonly false positives
+        const DEPENDENCY_PATTERNS_WHITELIST = [
+            /^@types\//,                    // TypeScript type definitions
+            /^@testing-library\//,          // Testing libraries
+            /^@emotion\/(react|styled)$/,   // Emotion React core packages
+            /^@mui\/styled-engine/,         // MUI styled engine packages
+            /^styled-components$/,          // Styled components
+            /^babel-plugin-/,               // Babel plugins
+            /^babel-preset-/,               // Babel presets
+            /^eslint-(config|plugin)-/,     // ESLint configs and plugins
+            /^stylelint-(config|plugin|processor)-/,  // Stylelint configs, plugins, and processors
+            /^prettier-plugin-/,            // Prettier plugins
+            /^postcss-/,                    // PostCSS plugins
+            /^@babel\/plugin-/,             // Scoped Babel plugins
+            /^@babel\/preset-/,             // Scoped Babel presets
+            /^@typescript-eslint\//,        // TypeScript ESLint
+            /@hookform\/resolvers$/,        // React Hook Form resolvers
+            /^webpack-/,                    // Webpack loaders/plugins
+            /^vite-plugin-/,                // Vite plugins
+            /^react-app-/,                  // React App utilities
+            /^i18next-/,                    // i18next plugins
+        ];
+
+        // Read custom ignore patterns from package.json if they exist
+        let customIgnorePatterns: string[] = [];
+        try {
+            const pkgPath = path.join(projectRoot, 'package.json');
+            if (fs.existsSync(pkgPath)) {
+                const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+                customIgnorePatterns = pkg.knipConfig?.ignorePatterns || [];
+            }
+        } catch (e) {
+            // Silently ignore errors reading package.json
+        }
+
+        return findings.filter(f => {
+            // Filter known false positive binaries
+            if (f.type === 'knip-binaries') {
+                const binaryName = this.extractName(f.message);
+                if (COMMON_BINARIES_WHITELIST.includes(binaryName)) {
+                    return false; // Exclude this false positive
+                }
+            }
+
+            // Filter known false positive dependencies
+            if (f.type === 'knip-dependencies' || f.type === 'knip-devDependencies') {
+                const depName = this.extractName(f.message);
+
+                // Check exact match against common dev dependencies
+                if (COMMON_DEV_DEPENDENCIES.includes(depName)) {
+                    return false;
+                }
+
+                // Check against whitelist patterns
+                if (DEPENDENCY_PATTERNS_WHITELIST.some(pattern => pattern.test(depName))) {
+                    return false;
+                }
+
+                // Check against custom ignore patterns
+                if (customIgnorePatterns.includes(depName)) {
+                    return false;
+                }
+            }
+
+            return true; // Keep this finding
+        });
+    }
+
+    /**
+     * Extract the name from a Knip message.
+     * Examples:
+     *   "binaries: react-scripts" -> "react-scripts"
+     *   "dependencies: @emotion/react" -> "@emotion/react"
+     */
+    private extractName(message: string): string {
+        const match = message.match(/^(?:binaries|dependencies|devDependencies|optionalPeerDependencies|unlisted|unresolved|exports|types|enumMembers|classMembers|duplicates):\s*(.+)$/);
+        return match ? match[1].trim() : '';
+    }
+
     async run(options: ScannerOptions): Promise<ScanResult> {
         console.log('[Analyzer] Running Knip (Deep Unused Code Scan)...');
 
@@ -147,7 +254,9 @@ export class KnipScanner implements Scanner {
                     }
                 }
 
-                return { tool: this.name, status: 'success', findings };
+                // Filter out common false positives before returning
+                const filteredFindings = this.filterFalsePositives(findings, options.cwd);
+                return { tool: this.name, status: 'success', findings: filteredFindings };
             } catch (parseErr: unknown) {
                 // Determine the actual error message
                 let errorMsg = 'Invalid JSON output';
