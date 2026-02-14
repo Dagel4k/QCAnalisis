@@ -62,20 +62,32 @@ function gitlabApiGetJson(baseUrl: string, token: string, pathname: string, quer
 branchesRouter.get('/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
+    console.log('[branches] Fetching branches for slug:', slug);
+    console.log('[branches] Config - gitlabBase:', config.gitlabBase);
+    console.log('[branches] Config - gitlabToken:', config.gitlabToken ? '***SET***' : 'NOT SET');
+
     const repo = getRepository(slug);
-    
+
     if (!repo) {
+      console.error('[branches] Repository not found for slug:', slug);
       return res.status(404).json({ error: 'Repository not found' });
     }
 
+    console.log('[branches] Found repo:', { name: repo.name, repoUrl: repo.repoUrl });
+
     const { host: repoHost, projectPath } = parseProjectPathFromRepoUrl(repo.repoUrl);
+    console.log('[branches] Parsed - host:', repoHost, 'projectPath:', projectPath);
+
     const gitlabBase = config.gitlabBase || (repoHost ? `${repoHost}/api/v4` : undefined);
-    
+    console.log('[branches] Using gitlabBase:', gitlabBase);
+
     if (!gitlabBase) {
+      console.error('[branches] No GitLab base URL available');
       return res.status(400).json({ error: 'No se pudo determinar GitLab base URL' });
     }
 
     if (!config.gitlabToken) {
+      console.error('[branches] GitLab token not configured');
       return res.status(401).json({ error: 'GitLab token no configurado' });
     }
 
@@ -100,7 +112,7 @@ branchesRouter.get('/:slug', async (req, res) => {
     res.json({ branches: branchList });
   } catch (error) {
     console.error('Error fetching branches:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to fetch branches',
       message: error instanceof Error ? error.message : 'Unknown error'
     });

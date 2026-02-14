@@ -29,6 +29,10 @@ export class Logger {
     this._write(msg, false);
   }
 
+  warn(msg: string): void {
+    this._write(`[WARN] ${msg}`, false);
+  }
+
   error(msg: string): void {
     this._write(msg, true);
   }
@@ -37,6 +41,7 @@ export class Logger {
     this.logFilePath = path;
   }
 }
+
 
 /**
  * Sanitize strings for use in filenames/branch slugs
@@ -78,8 +83,8 @@ export function loadEnvFromFile(filePath: string): void {
  * Generate a run ID based on date
  */
 export function makeRunId(base: string): string {
-    const padding = (n: number) => n.toString().padStart(2, '0');
-    const d = new Date();
-    const ts = `${d.getFullYear()}${padding(d.getMonth()+1)}${padding(d.getDate())}-${padding(d.getHours())}${padding(d.getMinutes())}${padding(d.getSeconds())}`;
-    return `${sanitizeName(base)}-${ts}`;
+  const padding = (n: number) => n.toString().padStart(2, '0');
+  const d = new Date();
+  const ts = `${d.getFullYear()}${padding(d.getMonth() + 1)}${padding(d.getDate())}-${padding(d.getHours())}${padding(d.getMinutes())}${padding(d.getSeconds())}`;
+  return `${sanitizeName(base)}-${ts}`;
 }

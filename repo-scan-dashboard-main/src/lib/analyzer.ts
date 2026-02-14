@@ -23,8 +23,6 @@ export async function runAnalysis(
     reportsDir,
     '--work-dir',
     config.workDir,
-    '--report-script',
-    config.reportScriptPath,
   ];
 
   if (options.mode === 'mrs' || options.mode === 'mrs-specific') {

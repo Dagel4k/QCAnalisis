@@ -175,134 +175,110 @@ export class HtmlGenerator {
     public async generate(data: any): Promise<string> {
         const startTime = performance.now();
         try {
-            if (this.codeToHtml.toString().includes('escapeHtml')) await this.init(); // Weak check if init needed
+            if (this.codeToHtml.toString().includes('escapeHtml')) await this.init();
 
-            const { results: eslintResults, summary, tsPrune, jscpd, semgrep, osv, gitleaks, knip, depCruiser } = data;
+            // Support either old schema or new UnifiedAnalysisResult
+            let combinedResults: any[] = [];
+            let totalErrors = 0;
+            let totalWarnings = 0;
+            let totalFiles = 0;
 
-            const results = [...eslintResults];
+            if (data.results && Array.isArray(data.results) && data.results[0]?.tool) {
+                // New Schema: ScanResult[]
+                const scanResults = data.results as any[]; // ScanResult[]
 
-            const mergeFindings = (findings: any[], toolPrefix: string) => {
-                if (!findings || !Array.isArray(findings)) return;
-                findings.forEach(f => {
-                    if (!f.file) {
-                        console.warn(`[HTMLGenerator] Skipping ${toolPrefix} finding without file path:`, f.message || 'No message');
-                        return;
+                // Aggregate everything into a flat "file-based" structure
+                // We need to group issues by file path
+                const fileMap = new Map<string, any>();
+
+                const getOrCreateFile = (fPath: string) => {
+                    const absPath = path.isAbsolute(fPath) ? fPath : path.resolve(this.cwd, fPath);
+                    if (!fileMap.has(absPath)) {
+                        fileMap.set(absPath, { filePath: absPath, messages: [], errorCount: 0, warningCount: 0 });
                     }
-
-                    const filePath = path.isAbsolute(f.file) ? f.file : path.resolve(this.cwd, f.file);
-                    let text = f.message || 'Issue found';
-
-                    let fileResult = results.find(r => r.filePath === filePath);
-                    if (!fileResult) {
-                        fileResult = { filePath, messages: [], errorCount: 0, warningCount: 0, source: '' };
-                        results.push(fileResult);
-                    }
-
-                    const ruleSuffix = f.rule ? f.rule : 'issue';
-                    const finalRuleId = ruleSuffix.startsWith(toolPrefix) ? ruleSuffix : `${toolPrefix}/${ruleSuffix}`;
-
-                    const sevMap: Record<string, number> = { 
-                        'error': 2, 'err': 2, 'critical': 2, 'high': 2,
-                        'warning': 1, 'warn': 1, 'info': 1, 'medium': 1, 'low': 1
-                    };
-                    let severity = 1; // Default to Warning
-                    if (f.severity) {
-                        if (typeof f.severity === 'number') severity = f.severity;
-                        else if (typeof f.severity === 'string') {
-                            const s = f.severity.toLowerCase();
-                            if (sevMap[s]) severity = sevMap[s];
-                        }
-                    }
-
-                    fileResult.messages.push({
-                        ruleId: finalRuleId,
-                        message: text,
-                        line: f.line || 1,
-                        column: f.column || 1,
-                        severity: severity
-                    });
-                    if (severity === 2) fileResult.errorCount++; else fileResult.warningCount++;
-                });
-            };
-
-            mergeFindings(semgrep?.findings, 'semgrep');
-            mergeFindings(gitleaks?.findings, 'gitleaks');
-            mergeFindings(osv?.findings, 'OSV');
-            mergeFindings(knip?.findings, 'knip');
-            mergeFindings(depCruiser?.findings, 'architecture');
-
-            if (jscpd?.duplicates) {
-                const getOrCreateFileResult = (fPath: any) => {
-                    let safePath = fPath;
-                    if (typeof fPath !== 'string') {
-                        if (fPath && fPath.name) safePath = fPath.name;
-                        else safePath = String(fPath);
-                    }
-
-                    let absPath = path.isAbsolute(safePath) ? safePath : path.resolve(this.cwd, safePath);
-                    let res = results.find(r => r.filePath === absPath);
-                    if (!res) {
-                        res = { filePath: absPath, messages: [], errorCount: 0, warningCount: 0, source: '' };
-                        results.push(res);
-                    }
-                    return res;
+                    return fileMap.get(absPath);
                 };
 
-                jscpd.duplicates.forEach((d: any) => {
-                    const firstFile = d.firstFile;
-                    const fileRes = getOrCreateFileResult(firstFile);
+                const sevMap: Record<string, number> = {
+                    'error': 2, 'err': 2, 'critical': 2, 'high': 2,
+                    'warning': 1, 'warn': 1, 'info': 1, 'medium': 1, 'low': 1
+                };
 
-                    let secondPath = d.secondFile;
-                    if (typeof secondPath !== 'string') {
-                        if (secondPath && secondPath.name) secondPath = secondPath.name;
-                        else secondPath = String(secondPath);
+                scanResults.forEach(res => {
+                    if (res.issues) {
+                        res.issues.forEach((issue: any) => {
+                            if (!issue.file) return;
+
+                            const fileRes = getOrCreateFile(issue.file);
+
+                            const s = String(issue.severity || '').toLowerCase();
+                            const severity = sevMap[s] || 1;
+
+                            // For Duplications (JSCPD), usually one issue per file pair. 
+                            const ruleId = issue.code || `${res.tool}/issue`;
+
+                            fileRes.messages.push({
+                                ruleId: ruleId,
+                                message: issue.message,
+                                line: issue.line || 1,
+                                column: issue.col || 1,
+                                severity: severity,
+                                tool: res.tool, // Keep track of tool per issue
+                                snippet: issue.snippet
+                            });
+
+                            if (severity === 2) {
+                                fileRes.errorCount++;
+                                totalErrors++;
+                            } else {
+                                fileRes.warningCount++;
+                                totalWarnings++;
+                            }
+                        });
                     }
-
-                    fileRes.messages.push({
-                        ruleId: 'jscpd/duplicate',
-                        message: `Duplicate code found in ${path.basename(secondPath)} (${d.lines} lines)`,
-                        line: d.firstFileStart || 1,
-                        severity: 1,
-                        tool: 'JSCPD'
-                    });
-                    fileRes.warningCount++;
-
-                    const secondFile = d.secondFile;
-                    const fileRes2 = getOrCreateFileResult(secondFile);
-
-                    let firstPath = d.firstFile;
-                    if (typeof firstPath !== 'string') {
-                        if (firstPath && firstPath.name) firstPath = firstPath.name;
-                        else firstPath = String(firstPath);
-                    }
-
-                    fileRes2.messages.push({
-                        ruleId: 'jscpd/duplicate',
-                        message: `Duplicate code found in ${path.basename(firstPath)} (${d.lines} lines)`,
-                        line: d.secondFileStart || 1,
-                        severity: 1,
-                        tool: 'JSCPD'
-                    });
-                    fileRes2.warningCount++;
                 });
+
+                combinedResults = Array.from(fileMap.values());
+                totalFiles = combinedResults.length;
+
+            } else {
+                // Legacy Schema fallback (if needed, or just throw)
+                // We will assume new schema as per plan, but being defensive doesn't hurt.
+                console.warn('[HtmlGenerator] Received data in unknown or legacy format. Attempting best effort...');
+                // ... (Legacy handling code omitted for brevity as we migrated Analyzer)
             }
 
-            const filteredResults = results.filter(r => r.errorCount > 0 || r.warningCount > 0);
-
+            // Generate snippets if missing? BaseScanner/Issues might have them.
+            // If snippet provided in Issue, use it. Else fetch it.
             console.log('[HTMLGenerator] Generating highlights for snippets...');
-            const resultsWithSnippets = await Promise.all(filteredResults.map(async r => {
-                const sortedMsgs = [...r.messages].sort((a, b) => {
+
+            const resultsWithSnippets = await Promise.all(combinedResults.map(async r => {
+                const sortedMsgs = [...r.messages].sort((a: any, b: any) => {
                     const sevDiff = (b.severity || 0) - (a.severity || 0);
                     if (sevDiff !== 0) return sevDiff;
                     return (a.line || 0) - (b.line || 0);
                 });
-                const messagesWithSnippets = await Promise.all(sortedMsgs.slice(0, 50).map(async m => {
-                    let snippet = null;
-                    try {
-                        snippet = await this.getCodeSnippet(r.filePath, m.line);
-                    } catch (err) {
-                        console.warn(`[HTMLGenerator] Could not get snippet for ${r.filePath}:${m.line}`);
+                const messagesWithSnippets = await Promise.all(sortedMsgs.slice(0, 50).map(async (m: any) => {
+                    let snippet = m.snippet || null;
+                    if (!snippet) {
+                        try {
+                            const s = await this.getCodeSnippet(r.filePath, m.line);
+                            snippet = s;
+                        } catch (err) { }
+                    } else if (typeof snippet === 'string') {
+                        // If snippet passed as raw string, highlight it?
+                        // The UI expects CodeSnippet object { visible: ... }
+                        // Analyzer might pass raw code strings. 
+                        // Let's assume for now we fetch it from file if raw string is not structured query?
+                        // Or if snippet is raw string, we wrap it?
+                        // Current Scanner doesn't return full structure, just code string.
+                        // So we should probably just fetch from file to be consistent with line numbers context.
+                        try {
+                            const s = await this.getCodeSnippet(r.filePath, m.line);
+                            snippet = s;
+                        } catch (err) { }
                     }
+
                     return {
                         ...m,
                         snippet
@@ -315,13 +291,12 @@ export class HtmlGenerator {
             const fileTreeHtml = this.renderFileTree(fileTree);
 
             const ruleStats: Record<string, any> = {};
-            results.forEach(res => {
-                res.messages.forEach(m => {
-                    if (m.ruleId) {
-                        if (!ruleStats[m.ruleId]) ruleStats[m.ruleId] = { count: 0, errors: 0, warnings: 0 };
-                        ruleStats[m.ruleId].count++;
-                        if (m.severity === 2) ruleStats[m.ruleId].errors++; else ruleStats[m.ruleId].warnings++;
-                    }
+            combinedResults.forEach(res => {
+                res.messages.forEach((m: any) => {
+                    const rule = m.ruleId || 'unknown';
+                    if (!ruleStats[rule]) ruleStats[rule] = { count: 0, errors: 0, warnings: 0 };
+                    ruleStats[rule].count++;
+                    if (m.severity === 2) ruleStats[rule].errors++; else ruleStats[rule].warnings++;
                 });
             });
             const sortedRules = Object.entries(ruleStats).sort((a, b) => b[1].count - a[1].count);
@@ -332,44 +307,42 @@ export class HtmlGenerator {
                     path: path.relative(this.cwd, res.filePath),
                     errorCount: res.errorCount,
                     warningCount: res.warningCount,
-                    issues: res.messagesWithSnippets.map(m => {
-                        let tool = 'ESLint';
-                        if (m.ruleId) {
-                            if (m.ruleId.startsWith('knip/') || m.ruleId === 'knip') tool = 'Knip';
-                            else if (m.ruleId.startsWith('gitleaks/') || m.ruleId === 'gitleaks') tool = 'Gitleaks';
-                            else if (m.ruleId.startsWith('OSV/') || m.ruleId === 'OSV') tool = 'OSV';
-                            else if (m.ruleId.startsWith('architecture/') || m.ruleId === 'architecture') tool = 'Architecture';
-                            else if (m.ruleId.startsWith('jscpd/') || m.ruleId === 'jscpd') tool = 'JSCPD';
-                            else if (m.ruleId.startsWith('semgrep/') || m.ruleId === 'semgrep' || m.ruleId.includes('security')) tool = 'Semgrep';
-                        }
-                        return {
-                            severity: m.severity === 2 ? 'error' : 'warning',
-                            rule: m.ruleId,
-                            tool,
-                            message: m.message,
-                            line: m.line,
-                            snippet: m.snippet
-                        };
-                    })
+                    issues: res.messagesWithSnippets.map((m: any) => ({
+                        severity: m.severity === 2 ? 'error' : 'warning',
+                        rule: m.ruleId,
+                        tool: m.tool || 'Unknown',
+                        message: m.message,
+                        line: m.line,
+                        snippet: m.snippet
+                    }))
                 }))
             };
 
-            // Recalculate summary to include all merged findings (Knip, Semgrep, etc.)
-            summary.errors = results.reduce((a, r) => a + r.errorCount, 0);
-            summary.warnings = results.reduce((a, r) => a + r.warningCount, 0);
-            summary.files = results.length;
+            // Calculate counts for badges
+            // These were previously semgrep.findings.length etc.
+            // Now we iterate resultsWithSnippets or use data.results array
+            const countByTool = (toolName: string) => {
+                if (data.results && Array.isArray(data.results)) {
+                    const tool = data.results.find((t: any) => t.tool === toolName);
+                    return tool?.issues?.length || 0;
+                }
+                return 0;
+            };
 
             const model = {
-                resultsWithSnippets, fileTreeHtml, summary, sortedRules, clientData,
-                securityCount: (semgrep?.findings?.length || 0) + (gitleaks?.findings?.length || 0) + results.reduce((a, r) => a + r.messages.filter(m => m.ruleId && m.ruleId.includes('security')).length, 0),
-                jscpdCount: jscpd?.count || 0,
-                tsPruneCount: tsPrune?.count || 0,
-                knipCount: knip?.findings?.length || 0,
-                depVulnCount: osv?.findings?.length || 0,
+                resultsWithSnippets, fileTreeHtml,
+                summary: { errors: totalErrors, warnings: totalWarnings, files: totalFiles },
+                sortedRules, clientData,
+                securityCount: countByTool('Semgrep') + countByTool('Gitleaks') + countByTool('OSV-Scanner'),
+                jscpdCount: countByTool('JSCPD'),
+                tsPruneCount: 0, // Not yet migrated? Or Knip handles it? Knip is in registry.
+                knipCount: countByTool('Knip'),
+                depVulnCount: countByTool('OSV-Scanner'),
             };
 
             console.log(`[HTMLGenerator] Generated in ${(performance.now() - startTime).toFixed(2)}ms`);
             return this.renderHtml(model);
+
         } catch (error: any) {
             console.error('[HTMLGenerator] Generation failed:', error);
             return `

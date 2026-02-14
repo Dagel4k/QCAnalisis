@@ -1,20 +1,19 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawnSync } from 'child_process';
-import { Scanner, ScanResult, ScannerOptions, ScanFinding } from './scanner.interface';
+import { BaseScanner } from './base.scanner';
+import { AnalysisContext } from './scanner.interface';
+import { Issue, ScanResult } from './scanner.types';
 
-export class KnipScanner implements Scanner {
+export class KnipScanner extends BaseScanner {
     name = 'Knip';
-
-    isEnabled(options: { noKnip?: boolean }): boolean {
-        return !options.noKnip;
-    }
+    version = '1.0.0';
 
     /**
      * Filter out common false positives from Knip findings.
      * Many legitimate binaries and dependencies are flagged incorrectly.
      */
-    private filterFalsePositives(findings: ScanFinding[], projectRoot: string): ScanFinding[] {
+    private filterFalsePositives(findings: Issue[], projectRoot: string): Issue[] {
         // Common binaries that are typically false positives
         const COMMON_BINARIES_WHITELIST = [
             'react-scripts', 'serve', 'vite', 'webpack-dev-server', 'webpack',
@@ -74,17 +73,20 @@ export class KnipScanner implements Scanner {
         }
 
         return findings.filter(f => {
+            const type = f.context?.type;
+            const message = f.message;
+
             // Filter known false positive binaries
-            if (f.type === 'knip-binaries') {
-                const binaryName = this.extractName(f.message);
+            if (type === 'knip-binaries') {
+                const binaryName = this.extractName(message);
                 if (COMMON_BINARIES_WHITELIST.includes(binaryName)) {
                     return false; // Exclude this false positive
                 }
             }
 
             // Filter known false positive dependencies
-            if (f.type === 'knip-dependencies' || f.type === 'knip-devDependencies') {
-                const depName = this.extractName(f.message);
+            if (type === 'knip-dependencies' || type === 'knip-devDependencies') {
+                const depName = this.extractName(message);
 
                 // Check exact match against common dev dependencies
                 if (COMMON_DEV_DEPENDENCIES.includes(depName)) {
@@ -117,10 +119,8 @@ export class KnipScanner implements Scanner {
         return match ? match[1].trim() : '';
     }
 
-    async run(options: ScannerOptions): Promise<ScanResult> {
-        console.log('[Analyzer] Running Knip (Deep Unused Code Scan)...');
-
-        const localBin = path.join(options.cwd, 'node_modules', '.bin', process.platform === 'win32' ? 'knip.cmd' : 'knip');
+    protected async execute(context: AnalysisContext): Promise<Issue[]> {
+        const localBin = path.join(context.cwd, 'node_modules', '.bin', process.platform === 'win32' ? 'knip.cmd' : 'knip');
 
         let cmd = 'npx';
         let args = ['knip', '--reporter', 'json', '--no-exit-code'];
@@ -136,19 +136,18 @@ export class KnipScanner implements Scanner {
         const hasConfig = configFiles.some(f => {
             if (f === 'package.json') {
                 try {
-                    const pkg = JSON.parse(fs.readFileSync(path.join(options.cwd, f), 'utf-8'));
+                    const pkg = JSON.parse(fs.readFileSync(path.join(context.cwd, f), 'utf-8'));
                     return !!pkg.knip;
                 } catch { return false; }
             }
-            return fs.existsSync(path.join(options.cwd, f));
+            return fs.existsSync(path.join(context.cwd, f));
         });
 
-        const tempConfigPath = path.join(options.cwd, 'knip.json');
+        const tempConfigPath = path.join(context.cwd, 'knip.json');
         let createdTempConfig = false;
 
         if (!hasConfig) {
             // Inject a temporary config to disable plugins that cause issues due to missing dependencies
-            // (eslint, vite, etc. load config files that require project devDependencies not in sandbox)
             try {
                 const effectiveConfig = {
                     eslint: false,
@@ -165,13 +164,13 @@ export class KnipScanner implements Scanner {
                 fs.writeFileSync(tempConfigPath, JSON.stringify(effectiveConfig, null, 2));
                 createdTempConfig = true;
             } catch (e: unknown) {
-                console.warn(`[Analyzer] Failed to create temp knip.json: ${e instanceof Error ? e.message : String(e)}`);
+                context.logger.log(`[Knip] Failed to create temp knip.json: ${e instanceof Error ? e.message : String(e)}`);
             }
         }
 
         try {
             const res = spawnSync(cmd, args, {
-                cwd: options.cwd,
+                cwd: context.cwd,
                 encoding: 'utf8',
                 stdio: ['ignore', 'pipe', 'pipe'],
                 maxBuffer: 20 * 1024 * 1024
@@ -179,29 +178,28 @@ export class KnipScanner implements Scanner {
 
             if (!res.stdout) {
                 if (res.stderr) {
-                    console.warn(`[Analyzer] Knip produced no output but wrote to stderr: ${res.stderr}`);
-                    return { tool: this.name, status: 'error', error: res.stderr, findings: [] };
+                    throw new Error(`Knip produced no output but wrote to stderr: ${res.stderr}`);
                 }
-                return { tool: this.name, status: 'success', findings: [] };
+                return [];
             }
 
             try {
                 const json = JSON.parse(res.stdout);
-                const findings: ScanFinding[] = [];
+                const findings: Issue[] = [];
 
                 // 1. Handle unused files (Top-level array of strings)
                 if (Array.isArray(json.files)) {
                     for (const file of json.files) {
-                        findings.push({
-                            tool: 'Knip',
-                            type: 'knip-unused-file',
-                            file: String(file),
-                            message: 'Unused file',
-                            rule: 'knip/unused-file',
-                            line: 1,
-                            col: 1,
-                            severity: 'warning'
-                        });
+                        findings.push(this.createIssue(
+                            'low',
+                            'Unused file',
+                            String(file),
+                            1,
+                            {
+                                code: 'knip/unused-file',
+                                context: { type: 'knip-unused-file' }
+                            }
+                        ));
                     }
                 }
 
@@ -218,16 +216,17 @@ export class KnipScanner implements Scanner {
                         for (const cat of categories) {
                             if (Array.isArray(group[cat])) {
                                 for (const item of group[cat]) {
-                                    findings.push({
-                                        tool: 'Knip',
-                                        type: `knip-${cat}`,
-                                        file: file,
-                                        message: `${cat}: ${item.name || item.symbol || 'issue'}`,
-                                        rule: `knip/${cat}`,
-                                        line: item.line || 1,
-                                        col: item.col || 1,
-                                        severity: 'warning'
-                                    });
+                                    findings.push(this.createIssue(
+                                        'medium',
+                                        `${cat}: ${item.name || item.symbol || 'issue'}`,
+                                        file,
+                                        item.line || 1,
+                                        {
+                                            col: item.col || 1,
+                                            code: `knip/${cat}`,
+                                            context: { type: `knip-${cat}` }
+                                        }
+                                    ));
                                 }
                             }
                         }
@@ -239,56 +238,41 @@ export class KnipScanner implements Scanner {
                     for (const type of types) {
                         if (Array.isArray(json[type])) {
                             for (const issue of json[type]) {
-                                findings.push({
-                                    tool: 'Knip',
-                                    type: `knip-${type}`,
-                                    file: issue.file || 'unknown',
-                                    message: `${type}: ${issue.name || issue.file}`,
-                                    rule: `knip/${type}`,
-                                    line: issue.line || 1,
-                                    col: issue.col || 1,
-                                    severity: 'warning'
-                                });
+                                findings.push(this.createIssue(
+                                    'medium',
+                                    `${type}: ${issue.name || issue.file}`,
+                                    issue.file || 'unknown',
+                                    issue.line || 1,
+                                    {
+                                        col: issue.col || 1,
+                                        code: `knip/${type}`,
+                                        context: { type: `knip-${type}` }
+                                    }
+                                ));
                             }
                         }
                     }
                 }
 
-                // Filter out common false positives before returning
-                const filteredFindings = this.filterFalsePositives(findings, options.cwd);
-                return { tool: this.name, status: 'success', findings: filteredFindings };
+                return this.filterFalsePositives(findings, context.cwd);
+
             } catch (parseErr: unknown) {
-                // Determine the actual error message
+                // ... Error handling logic for JSON parse ...
                 let errorMsg = 'Invalid JSON output';
                 const stderr = res.stderr ? res.stderr.trim() : '';
                 const stdout = res.stdout ? res.stdout.trim() : '';
 
-                if (stderr) {
-                    errorMsg = stderr;
-                } else if (stdout.startsWith('Module loading failed') || stdout.startsWith('Error:')) {
-                    errorMsg = stdout.split('\n')[0]; // Take the first line
-                }
+                if (stderr) errorMsg = stderr;
+                else if (stdout.startsWith('Module loading failed') || stdout.startsWith('Error:')) errorMsg = stdout.split('\n')[0];
 
-                console.warn(`[Analyzer] Failed to parse Knip JSON. Output start: "${stdout.slice(0, 50)}..."`);
-                if (stderr) console.warn(`[Analyzer] Knip Stderr: ${stderr}`);
-
-                // Keep original error message if no better one found
-                if (errorMsg === 'Invalid JSON output' && parseErr instanceof Error) {
-                    errorMsg += `: ${parseErr.message}`;
-                }
-
-                return { tool: this.name, status: 'error', error: errorMsg, findings: [] };
+                context.logger.log(`[Knip] WARN: Failed to parse output. Start: "${stdout.slice(0, 50)}..."`);
+                throw new Error(errorMsg);
             }
-        } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : String(e);
-            console.warn(`[Analyzer] Knip failed: ${msg}`);
-            return { tool: this.name, status: 'error', error: msg, findings: [] };
         } finally {
             if (createdTempConfig && fs.existsSync(tempConfigPath)) {
-                try {
-                    fs.unlinkSync(tempConfigPath);
-                } catch (e) { /* ignore cleanup error */ }
+                try { fs.unlinkSync(tempConfigPath); } catch (e) { }
             }
         }
     }
 }
+

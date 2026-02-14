@@ -1,34 +1,48 @@
+import { Logger } from '../utils';
+import { ScanResult } from './scanner.types';
 
-export interface ScanFinding {
-    tool: string;
-    rule: string;
-    message: string;
-    file: string;
-    line: number;
-    col?: number;
-    severity?: 'error' | 'warning' | 'info';
-    match?: string;
-    package?: string;
-    version?: string;
-    type?: string;
-}
-
-export interface ScanResult {
-    tool: string;
-    status: 'success' | 'skipped' | 'error';
-    findings: ScanFinding[];
-    error?: string;
-    summary?: any; // For tools like DepCruiser that return a summary object
-}
-
-export interface ScannerOptions {
+export interface AnalysisContext {
+    /**
+     * The root directory of the repository/sandbox to analyze.
+     */
     cwd: string;
-    // Common overrides like "noKnip", "forceInternalEslint" etc can be passed via a config object if needed,
-    // or handled by the Orchestrator deciding which Scanners to instantiate.
+
+    /**
+     * Global configuration object.
+     */
+    config: any;
+
+    /**
+     * Standardized logger instance.
+     */
+    logger: Logger;
+
+    /**
+     * Environment variables for the analysis process.
+     */
+    env: NodeJS.ProcessEnv;
 }
 
-export interface Scanner {
+export interface IScanner {
+    /**
+     * unique name of the scanner.
+     */
     name: string;
-    isEnabled(options: any): boolean;
-    run(options: ScannerOptions): Promise<ScanResult>;
+
+    /**
+     * Version of the scanner tool (optional).
+     */
+    version?: string;
+
+    /**
+     * Determines if the scanner should run based on the current context.
+     * @param context The analysis context.
+     */
+    isEnabled(context: AnalysisContext): boolean;
+
+    /**
+     * Executes the scanner.
+     * @param context The analysis context.
+     */
+    run(context: AnalysisContext): Promise<ScanResult>;
 }
