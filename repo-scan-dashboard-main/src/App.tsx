@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Home from "./pages/home";
+import Home from "./pages/Home";
 import { lazy, Suspense, useEffect, useState, Fragment } from "react";
 const RepoDetail = lazy(() => import("./pages/repo-detail"));
+const Setup = lazy(() => import("./pages/setup"));
 import NotFound from "./pages/not-found";
 
 const App = () => {
@@ -11,11 +12,11 @@ const App = () => {
   // Prefetch lazy route chunk on idle to improve next navigation
   useEffect(() => {
     const prefetch = () => {
-      import("./pages/repo-detail").catch(() => {});
+      import("./pages/repo-detail").catch(() => { });
       // Defer non-critical UI providers to after first paint
-      import("@/components/ui/tooltip").then((m) => setTooltipProviderComp(() => m.TooltipProvider)).catch(() => {});
-      import("@/components/ui/toaster").then((m) => setToasterComp(() => m.Toaster)).catch(() => {});
-      import("@/components/ui/sonner").then((m) => setSonnerComp(() => m.Toaster)).catch(() => {});
+      import("@/components/ui/tooltip").then((m) => setTooltipProviderComp(() => m.TooltipProvider)).catch(() => { });
+      import("@/components/ui/toaster").then((m) => setToasterComp(() => m.Toaster)).catch(() => { });
+      import("@/components/ui/sonner").then((m) => setSonnerComp(() => m.Toaster)).catch(() => { });
     };
     // Try to be polite with main thread
     if (typeof window !== "undefined" && window.requestIdleCallback) {
@@ -37,6 +38,14 @@ const App = () => {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route
+            path="/setup"
+            element={
+              <Suspense fallback={<div className="p-6 text-muted-foreground">Cargando...</div>}>
+                <Setup />
+              </Suspense>
+            }
+          />
           <Route
             path="/repos/:slug"
             element={

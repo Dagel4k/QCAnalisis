@@ -8,6 +8,7 @@ import { analyzeRouter } from './routes/analyze.js';
 import { jobsRouter } from './routes/jobs.js';
 import { branchesRouter } from './routes/branches.js';
 import { mrsRouter } from './routes/mrs.js';
+import { setupRouter } from './routes/setup.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -90,27 +91,27 @@ app.use((req, res, next) => {
   // Reasonable defaults; relax in dev to not break Vite HMR
   const csp = isProd
     ? [
-        "default-src 'self'",
-        "script-src 'self' https://cdnjs.cloudflare.com",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: https:",
-        "font-src 'self' data: https:",
-        "connect-src 'self' https: wss:",
-        "frame-ancestors 'self'",
-        "base-uri 'self'",
-        "form-action 'self'",
-      ].join('; ')
+      "default-src 'self'",
+      "script-src 'self' https://cdnjs.cloudflare.com",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data: https:",
+      "connect-src 'self' https: wss:",
+      "frame-ancestors 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ')
     : [
-        "default-src 'self' data: blob:",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: https:",
-        "font-src 'self' data: https:",
-        "connect-src 'self' http: https: ws: wss:",
-        "frame-ancestors 'self'",
-        "base-uri 'self'",
-        "form-action 'self'",
-      ].join('; ');
+      "default-src 'self' data: blob:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "font-src 'self' data: https:",
+      "connect-src 'self' http: https: ws: wss:",
+      "frame-ancestors 'self'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; ');
 
   res.setHeader('Content-Security-Policy', csp);
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -133,6 +134,7 @@ app.use('/api/analyze', analyzeRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/branches', branchesRouter);
 app.use('/api/mrs', mrsRouter);
+app.use('/api/setup', setupRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
