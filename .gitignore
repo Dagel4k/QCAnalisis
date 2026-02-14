@@ -24,6 +24,10 @@ storage/
 repo-scan-dashboard-main/storage/
 repo-scan-dashboard-main/.work/
 
+# Internal Verification & Temp dirs
+.verification_work*/
+verification_reports*/
+
 # Dev-tools tarballs and caches
 packages/dev-tools/*.tgz
 *.tgz
@@ -36,4 +40,3 @@ packages/dev-tools/*.tgz
 # Misc large files not for VCS
 libro.epub
 GEMINI.md
-
