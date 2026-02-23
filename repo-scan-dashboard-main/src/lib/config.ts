@@ -46,7 +46,24 @@ function getCurrentDir(): string {
   return process.cwd();
 }
 
+function getElectronUserData(): string | null {
+  if (process.env.ELECTRON_MODE === 'true' && process.env.USER_DATA_PATH) {
+    return process.env.USER_DATA_PATH;
+  }
+  try {
+    const { app } = require('electron');
+    return app.getPath('userData');
+  } catch {
+    return null;
+  }
+}
+
 function findProjectRoot(): string {
+  const electronData = getElectronUserData();
+  if (electronData) {
+    return electronData;
+  }
+
   const possibleRoots = [
     path.join(process.cwd(), '..'),
     path.join(process.cwd(), '..', '..'),
@@ -98,6 +115,8 @@ function resolveScriptPath(envVar: string, defaultPath: string): string {
   return envVar || resolved;
 }
 
+const isElectron = !!getElectronUserData();
+
 export const config = {
   gitlabBase: process.env.GITLAB_BASE || '',
   gitlabToken: process.env.GITLAB_TOKEN || process.env.GITLAB_PRIVATE_TOKEN || '',
@@ -112,8 +131,12 @@ export const config = {
     process.env.REPORT_SCRIPT_PATH || '',
     'generate-html-lint-report.js'
   ),
-  workDir: process.env.WORK_DIR || path.join(projectRoot, '.work'),
-  storageDir: process.env.STORAGE_DIR || path.join(projectRoot, 'reports'),
+  workDir: process.env.WORK_DIR || (isElectron 
+    ? path.join(projectRoot, '.work')
+    : path.join(projectRoot, '.work')),
+  storageDir: process.env.STORAGE_DIR || (isElectron
+    ? path.join(projectRoot, 'storage')
+    : path.join(projectRoot, 'reports')),
   defaultIgnore: process.env.DEFAULT_IGNORE || '**/*.pb.ts,**/proto/**,**/node_modules/**',
   defaultGlobs: process.env.DEFAULT_GLOBS || 'src/**/*.{ts,tsx,js,jsx}',
   installDevSpec: process.env.INSTALL_DEV_SPEC || '',
@@ -129,6 +152,9 @@ export function getRepositories(): Repository[] {
       if (fs.existsSync(dashboardReposPath)) {
         const content = fs.readFileSync(dashboardReposPath, 'utf8');
         return JSON.parse(content);
+      }
+      if (isElectron) {
+        return [];
       }
       console.warn('repos.json not found, returning empty array');
       return [];

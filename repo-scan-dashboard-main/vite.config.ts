@@ -36,5 +36,8 @@ export default defineConfig(({ mode }) => ({
     modulePreload: { polyfill: true },
     reportCompressedSize: true,
     target: "es2022",
+    rollupOptions: {
+      input: resolve(dirname(fileURLToPath(import.meta.url)), "./index.html"),
+    },
   },
 }));

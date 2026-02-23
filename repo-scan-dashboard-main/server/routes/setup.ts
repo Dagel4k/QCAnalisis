@@ -13,9 +13,48 @@ function getEnvPath() {
     return path.resolve(process.cwd(), '.env');
 }
 
+// Helper to read token from .env file
+function readTokenFromEnv(): string | null {
+    const envPath = getEnvPath();
+    if (!fs.existsSync(envPath)) {
+        return null;
+    }
+    
+    try {
+        const content = fs.readFileSync(envPath, 'utf8');
+        const lines = content.split(/\r?\n/);
+        
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed.startsWith('#')) continue;
+            
+            if (trimmed.startsWith('GITLAB_TOKEN=')) {
+                const value = trimmed.substring('GITLAB_TOKEN='.length).trim();
+                if (value) {
+                    const unquoted = value.replace(/^["']|["']$/g, '');
+                    return unquoted || null;
+                }
+            }
+            if (trimmed.startsWith('GITLAB_PRIVATE_TOKEN=')) {
+                const value = trimmed.substring('GITLAB_PRIVATE_TOKEN='.length).trim();
+                if (value) {
+                    const unquoted = value.replace(/^["']|["']$/g, '');
+                    return unquoted || null;
+                }
+            }
+        }
+    } catch {
+        // Fallback to process.env if file read fails
+    }
+    
+    return null;
+}
+
 // GET /api/setup/status
 setupRouter.get('/status', (req, res) => {
-    const token = process.env.GITLAB_TOKEN || process.env.GITLAB_PRIVATE_TOKEN;
+    const tokenFromFile = readTokenFromEnv();
+    const tokenFromEnv = process.env.GITLAB_TOKEN || process.env.GITLAB_PRIVATE_TOKEN;
+    const token = tokenFromFile || tokenFromEnv;
     const configured = !!(token && token.trim().length > 0);
     res.json({ configured });
 });

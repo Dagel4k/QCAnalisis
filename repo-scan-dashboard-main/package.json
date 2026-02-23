@@ -7,13 +7,25 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
+    "dev:electron": "npm run build:electron:main && concurrently \"npm run dev:electron:watch\" \"npm run dev:client\" \"npm run dev:electron:run\"",
+    "dev:electron:watch": "node scripts/watch-electron.cjs",
+    "dev:electron:run": "node -e \"setTimeout(() => require('child_process').spawn('electron', ['.'], {stdio: 'inherit'}), 3000)\"",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:electron": "npm run build && npm run build:electron:main",
+    "build:electron:main": "tsc -p tsconfig.electron.json && npm run build:electron:rename",
+    "build:electron:rename": "node -e \"const fs=require('fs');const p='dist-electron/';fs.existsSync(p+'main.js')&&fs.renameSync(p+'main.js',p+'main.cjs');fs.existsSync(p+'preload.js')&&fs.renameSync(p+'preload.js',p+'preload.cjs')\"",
     "start": "concurrently \"npm run start:server\" \"npm run start:client\"",
     "start:server": "tsx server/index.ts",
     "start:client": "vite preview",
     "serve:prod": "npm run build && NODE_ENV=production tsx server/index.ts",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron": "electron .",
+    "electron:dev": "npm run build:electron && electron .",
+    "electron:pack": "npm run build:electron && electron-builder",
+    "electron:pack:mac": "npm run build:electron && electron-builder --mac",
+    "electron:pack:win": "npm run build:electron && electron-builder --win",
+    "electron:pack:linux": "npm run build:electron && electron-builder --linux"
   },
   "dependencies": {
     "@eslint/compat": "^2.0.0",
@@ -83,6 +95,8 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
@@ -92,5 +106,28 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
     "vite": "^5.4.19"
+  },
+  "main": "dist-electron/main.cjs",
+  "build": {
+    "appId": "com.qcanalisis.app",
+    "productName": "QCAnalisis",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "node_modules/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    }
   }
 }

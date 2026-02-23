@@ -1,5 +1,5 @@
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,27 @@ export default function Setup() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState(false);
+    const [checking, setChecking] = useState(true);
+
+    useEffect(() => {
+        const checkStatus = async () => {
+            try {
+                const res = await fetch(`${API_URL}/api/setup/status`);
+                if (res.ok) {
+                    const { configured } = await res.json();
+                    if (configured) {
+                        window.location.href = '/';
+                        return;
+                    }
+                }
+            } catch {
+                // Continue to setup form if check fails
+            } finally {
+                setChecking(false);
+            }
+        };
+        checkStatus();
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -32,18 +53,38 @@ export default function Setup() {
                 throw new Error(data.error || 'Error al guardar la configuración');
             }
 
+            // Verify the configuration was saved correctly
+            const statusResponse = await fetch(`${API_URL}/api/setup/status`);
+            if (statusResponse.ok) {
+                const { configured } = await statusResponse.json();
+                if (!configured) {
+                    throw new Error('La configuración no se guardó correctamente');
+                }
+            }
+
             setSuccess(true);
-            // Wait a moment and redirect
             setTimeout(() => {
                 window.location.href = '/';
             }, 1500);
 
         } catch (err: any) {
             setError(err.message || 'Error desconocido');
-        } finally {
             setLoading(false);
         }
     };
+
+    if (checking) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-background p-4">
+                <Card className="w-full max-w-md">
+                    <CardContent className="pt-6 text-center space-y-4">
+                        <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                        <p className="text-muted-foreground">Verificando configuración...</p>
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
 
     if (success) {
         return (
