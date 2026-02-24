@@ -3,11 +3,18 @@ import { ESLint } from 'eslint';
 const fg = require('fast-glob');
 import { BaseScanner } from './base.scanner';
 import { AnalysisContext } from './scanner.interface';
+import * as path from 'path';
 import { Issue } from './scanner.types';
 
 export class EslintScanner extends BaseScanner {
     name = 'ESLint';
     version = '8.x';
+
+    isEnabled(context: AnalysisContext): boolean {
+        if (!super.isEnabled(context)) return false;
+        // Detect JS/TS project
+        return fs.existsSync(path.join(context.cwd, 'package.json'));
+    }
 
     protected async execute(context: AnalysisContext): Promise<Issue[]> {
         const globs = context.config?.globs;

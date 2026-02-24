@@ -40,6 +40,7 @@ export class GitService {
 
         const args = [
             'clone',
+            '--config', 'credential.helper=',
             '--quiet',
             '--depth', depth.toString(),
             '--branch', branch,

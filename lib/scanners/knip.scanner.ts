@@ -9,6 +9,12 @@ export class KnipScanner extends BaseScanner {
     name = 'Knip';
     version = '1.0.0';
 
+    isEnabled(context: AnalysisContext): boolean {
+        if (!super.isEnabled(context)) return false;
+        // Detect JS/TS project
+        return fs.existsSync(path.join(context.cwd, 'package.json'));
+    }
+
     /**
      * Filter out common false positives from Knip findings.
      * Many legitimate binaries and dependencies are flagged incorrectly.
@@ -153,6 +159,19 @@ export class KnipScanner extends BaseScanner {
                     eslint: false,
                     vite: false,
                     vitest: false,
+                    ignore: [
+                        '**/*.test.{js,ts,jsx,tsx}',
+                        '**/*.spec.{js,ts,jsx,tsx}',
+                        '**/*.mock.{js,ts,jsx,tsx}',
+                        '**/__tests__/**',
+                        '**/__mocks__/**',
+                        'internals/**',
+                        'setupTests.ts',
+                        'jest.setup.ts',
+                        '.*rc.js',
+                        '*.config.{js,ts,cjs,mjs}',
+                        'docs/**'
+                    ],
                     // Since we disable vite, we must manually ensure common entry points are covered
                     entry: [
                         'index.ts', 'index.js', 'index.tsx', 'index.jsx',

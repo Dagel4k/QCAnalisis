@@ -45,7 +45,7 @@ export class SummaryManager {
         result: UnifiedAnalysisResult,
         reportPath: string
     ): void {
-        const repoDir = path.join(this.reportsDir, repoSlug);
+        const repoDir = this.reportsDir;
         if (!fs.existsSync(repoDir)) {
             fs.mkdirSync(repoDir, { recursive: true });
         }

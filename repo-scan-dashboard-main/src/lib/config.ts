@@ -96,9 +96,10 @@ const projectRoot = findProjectRoot();
 
 // Preload env from common locations before exporting config
 (() => {
-  // Priority: DOTENV_PATH > projectRoot/.env > parent/.env
+  // Priority: DOTENV_PATH > process.cwd()/.env > projectRoot/.env > parent/.env
   const dotenvPath = process.env.DOTENV_PATH;
   if (dotenvPath) loadEnvFromFile(path.resolve(dotenvPath));
+  loadEnvFromFile(path.join(process.cwd(), '.env')); // Added this line to find the local .env
   loadEnvFromFile(path.join(projectRoot, '.env'));
   // Also try parent of projectRoot (useful when dashboard lives inside main repo)
   loadEnvFromFile(path.resolve(projectRoot, '..', '.env'));
@@ -131,14 +132,14 @@ export const config = {
     process.env.REPORT_SCRIPT_PATH || '',
     'generate-html-lint-report.js'
   ),
-  workDir: process.env.WORK_DIR || (isElectron 
+  workDir: process.env.WORK_DIR || (isElectron
     ? path.join(projectRoot, '.work')
     : path.join(projectRoot, '.work')),
   storageDir: process.env.STORAGE_DIR || (isElectron
     ? path.join(projectRoot, 'storage')
     : path.join(projectRoot, 'reports')),
-  defaultIgnore: process.env.DEFAULT_IGNORE || '**/*.pb.ts,**/proto/**,**/node_modules/**',
-  defaultGlobs: process.env.DEFAULT_GLOBS || 'src/**/*.{ts,tsx,js,jsx}',
+  defaultIgnore: process.env.DEFAULT_IGNORE || '**/*.pb.ts,**/proto/**,**/node_modules/**,dist/**,build/**,.git/**',
+  defaultGlobs: process.env.DEFAULT_GLOBS || '**/*.{ts,tsx,js,jsx}',
   installDevSpec: process.env.INSTALL_DEV_SPEC || '',
   analyzeOfflineMode: process.env.ANALYZE_OFFLINE_MODE === 'true',
   forceEslintConfig: process.env.FORCE_ESLINT_CONFIG === 'true',
