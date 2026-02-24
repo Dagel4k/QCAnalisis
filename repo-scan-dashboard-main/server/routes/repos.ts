@@ -36,7 +36,7 @@ function normalizeSummary(summary: RawReportSummary): ReportSummary {
       const name = item.branch || item.name || '';
       const reportDir = path.dirname(reportPath);
       const id = path.basename(reportDir) || name;
-      
+
       return {
         name,
         reportPath,
@@ -50,7 +50,7 @@ function normalizeSummary(summary: RawReportSummary): ReportSummary {
       const name = item.sourceBranch || item.branch || item.name || '';
       const reportDir = path.dirname(reportPath);
       const id = path.basename(reportDir) || `mr-${item.iid}-${name}`;
-      
+
       return {
         name,
         reportPath,
@@ -99,6 +99,12 @@ function findSummaryForRepo(repoSlug: string, repoUrl?: string): ReportSummary |
   }
 
   return null;
+}
+
+function isPathSafe(targetPath: string): boolean {
+  const resolved = path.resolve(targetPath);
+  const base = path.resolve(config.storageDir);
+  return resolved.startsWith(base + path.sep);
 }
 
 function reposWithStatusFrom(repos: Repository[]): RepositoryWithStatus[] {
@@ -152,11 +158,11 @@ reposRouter.get('/:slug/reports', (req, res) => {
     const repos = getRepositories();
     const repo = repos.find(r => r.slug === slug);
     const summary = findSummaryForRepo(slug, repo?.repoUrl);
-    
+
     if (!summary) {
       return res.json({ branches: [], generatedAt: new Date().toISOString(), history: [] });
     }
-    
+
     res.json(summary);
   } catch (error) {
     console.error('Error getting reports:', error);
@@ -170,7 +176,7 @@ reposRouter.get('/:slug/reports/:id', (req, res) => {
     const { slug, id } = req.params;
     const repos = getRepositories();
     const repo = repos.find(r => r.slug === slug);
-    
+
     let reportPath = path.join(config.storageDir, slug, id, 'lint-report.html');
     if (!fs.existsSync(reportPath)) {
       reportPath = path.join(config.storageDir, id, 'lint-report.html');
@@ -211,11 +217,15 @@ reposRouter.get('/:slug/reports/:id', (req, res) => {
         }
       }
     }
-    
+
+    if (!isPathSafe(reportPath)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     if (!fs.existsSync(reportPath)) {
       return res.status(404).json({ error: 'Report not found' });
     }
-    
+
     res.sendFile(path.resolve(reportPath));
   } catch (error) {
     console.error('Error serving report:', error);
@@ -269,6 +279,11 @@ reposRouter.get('/:slug/reports/:id/lint-summary.json', (req, res) => {
 
     const resolved = candidates.find(p => fs.existsSync(p));
     if (!resolved) return res.status(404).json({ error: 'Summary not found' });
+
+    if (!isPathSafe(resolved)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     res.setHeader('Content-Type', 'application/json');
     res.sendFile(path.resolve(resolved));
   } catch (error) {
@@ -316,6 +331,11 @@ reposRouter.get('/:slug/reports/:id/logs', (req, res) => {
 
     if (!reportDir) return res.status(404).json({ error: 'Log not found' });
     const logPath = path.join(reportDir, 'analysis.log');
+
+    if (!isPathSafe(logPath)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     if (!fs.existsSync(logPath)) return res.status(404).json({ error: 'Log not found' });
 
     res.setHeader('Content-Type', 'text/plain; charset=utf8');

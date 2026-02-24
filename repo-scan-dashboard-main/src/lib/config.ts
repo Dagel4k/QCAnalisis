@@ -59,11 +59,6 @@ function getElectronUserData(): string | null {
 }
 
 function findProjectRoot(): string {
-  const electronData = getElectronUserData();
-  if (electronData) {
-    return electronData;
-  }
-
   const possibleRoots = [
     path.join(process.cwd(), '..'),
     path.join(process.cwd(), '..', '..'),
@@ -132,11 +127,11 @@ export const config = {
     process.env.REPORT_SCRIPT_PATH || '',
     'generate-html-lint-report.js'
   ),
-  workDir: process.env.WORK_DIR || (isElectron
-    ? path.join(projectRoot, '.work')
+  workDir: process.env.WORK_DIR || (isElectron && getElectronUserData()
+    ? path.join(getElectronUserData()!, '.work')
     : path.join(projectRoot, '.work')),
-  storageDir: process.env.STORAGE_DIR || (isElectron
-    ? path.join(projectRoot, 'storage')
+  storageDir: process.env.STORAGE_DIR || (isElectron && getElectronUserData()
+    ? path.join(getElectronUserData()!, 'storage')
     : path.join(projectRoot, 'reports')),
   defaultIgnore: process.env.DEFAULT_IGNORE || '**/*.pb.ts,**/proto/**,**/node_modules/**,dist/**,build/**,.git/**',
   defaultGlobs: process.env.DEFAULT_GLOBS || '**/*.{ts,tsx,js,jsx}',

@@ -5,13 +5,7 @@ const fs = require('fs');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
-const appDir = (() => {
-  try {
-    return path.dirname(require.main?.filename || process.execPath);
-  } catch {
-    return path.dirname(process.execPath);
-  }
-})();
+const appDir = __dirname;
 
 let mainWindow: any = null;
 let serverProcess: any = null;
@@ -41,124 +35,65 @@ function createWindow() {
   });
 }
 
-function findProjectRoot(): string {
-  const electronData = app.getPath('userData');
-  const possibleRoots = [
-    path.join(appDir, '../..'),
-    path.join(appDir, '../../..'),
-    process.cwd(),
-  ];
-
-  for (const root of possibleRoots) {
-    const scriptPath = path.join(root, 'bin', 'review-gitlab-branches.js');
-    if (fs.existsSync(scriptPath)) {
-      return root;
-    }
-  }
-
-  return electronData;
-}
-
 function startServer() {
-  const projectRoot = findProjectRoot();
-  const userDataPath = app.getPath('userData');
-  
-  const projectRootDir = path.resolve(appDir, '../..');
-  const serverScript = path.join(projectRootDir, 'server', 'index.ts');
-  
-  let tsxPath: string;
   try {
-    tsxPath = require.resolve('tsx');
-  } catch {
-    tsxPath = path.join(projectRootDir, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+    const userDataPath = app.getPath('userData');
+    const dashboardRoot = path.resolve(__dirname, '..');
+    const serverScript = path.join(dashboardRoot, 'server', 'index.ts');
+    const tsxPath = path.join(dashboardRoot, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+
     if (!fs.existsSync(tsxPath)) {
-      console.error('tsx not found, server may not start correctly');
-      return;
+      console.error('tsx not found at', tsxPath);
     }
-  }
-  
-  let nodeExecutable: string = 'node';
-  const { execSync } = require('child_process');
-  
-  if (process.platform === 'win32') {
-    nodeExecutable = 'node.exe';
-  } else {
-    try {
-      const whichResult = execSync('which node', { 
-        encoding: 'utf8',
-        env: { ...process.env, PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin' }
-      }).trim();
-      if (whichResult && fs.existsSync(whichResult)) {
-        nodeExecutable = whichResult;
+
+    console.log('Using Electron Node:', process.execPath);
+    console.log('Server script:', serverScript);
+    console.log('TSX path:', tsxPath);
+
+    const envPath = [
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin',
+      process.env.PATH || '',
+    ].filter(Boolean).join(':');
+
+    const env = {
+      ...process.env,
+      NODE_ENV: isDev ? 'development' : 'production',
+      PORT: '3001',
+      ELECTRON_MODE: 'true',
+      USER_DATA_PATH: userDataPath,
+      PATH: envPath,
+      ELECTRON_RUN_AS_NODE: '1',
+    };
+
+    serverProcess = spawn(process.execPath, [tsxPath, serverScript], {
+      env,
+      stdio: 'inherit',
+      cwd: userDataPath,
+      shell: false,
+    });
+
+    serverProcess.on('error', (error: any) => {
+      console.error('Server process error:', error);
+    });
+
+    serverProcess.on('exit', (code: any) => {
+      console.log(`Server process exited with code ${code}`);
+      if (code !== 0 && code !== null && mainWindow && !mainWindow.isDestroyed()) {
+        console.error('Server crashed, restarting...');
+        setTimeout(startServer, 2000);
       }
-    } catch (err) {
-      console.log('which node failed, trying common paths');
-    }
-    
-    if (nodeExecutable === 'node') {
-      const commonPaths = [
-        '/opt/homebrew/bin/node',
-        '/usr/local/bin/node',
-        '/usr/bin/node',
-        '/bin/node',
-      ];
-      for (const nodePath of commonPaths) {
-        if (fs.existsSync(nodePath)) {
-          nodeExecutable = nodePath;
-          break;
-        }
-      }
-    }
+    });
+  } catch (error) {
+    console.error('Failed to start internal server:', error);
   }
-  
-  console.log('Using Node.js:', nodeExecutable);
-  console.log('Server script:', serverScript);
-  console.log('TSX path:', tsxPath);
-  
-  const envPath = [
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    '/usr/bin',
-    '/bin',
-    process.env.PATH || '',
-  ].filter(Boolean).join(':');
-  
-  const env = {
-    ...process.env,
-    NODE_ENV: isDev ? 'development' : 'production',
-    PORT: '3001',
-    ELECTRON_MODE: 'true',
-    USER_DATA_PATH: userDataPath,
-    REVIEW_SCRIPT_PATH: path.join(projectRoot, 'bin', 'review-gitlab-branches.js'),
-    REPORT_SCRIPT_PATH: path.join(projectRoot, 'generate-html-lint-report.js'),
-    WORK_DIR: path.join(userDataPath, '.work'),
-    STORAGE_DIR: path.join(userDataPath, 'storage'),
-    PATH: envPath,
-  };
-
-  serverProcess = spawn(nodeExecutable, [tsxPath, serverScript], {
-    env,
-    stdio: 'inherit',
-    cwd: projectRootDir,
-    shell: false,
-  });
-
-  serverProcess.on('error', (error) => {
-    console.error('Server process error:', error);
-  });
-
-  serverProcess.on('exit', (code) => {
-    console.log(`Server process exited with code ${code}`);
-    if (code !== 0 && code !== null && mainWindow && !mainWindow.isDestroyed()) {
-      console.error('Server crashed, restarting...');
-      setTimeout(startServer, 2000);
-    }
-  });
 }
 
 app.whenReady().then(() => {
   startServer();
-  
+
   setTimeout(() => {
     createWindow();
   }, 2000);

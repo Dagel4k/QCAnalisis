@@ -332,7 +332,12 @@ async function main() {
       }
 
       // Shallow clone branch (silencioso para evitar falsos "ERROR" por salida en stderr)
-      run(`git clone --quiet --depth ${opts.depth} --branch ${branchName} --single-branch ${task.repoUrl} ${cloneDir}`);
+      const cloneRes = spawnSync('git', [
+        'clone', '--quiet', '--depth', String(opts.depth),
+        '--branch', branchName, '--single-branch', task.repoUrl, cloneDir
+      ], { stdio: 'inherit' });
+      if (cloneRes.error) throw cloneRes.error;
+      if (cloneRes.status !== 0) throw new Error(`Git clone failed with status ${cloneRes.status}`);
 
       // Opcional: instalar meta dev dependency (para ESLint, ts-prune, jscpd, etc.)
       if (opts.installDev) {

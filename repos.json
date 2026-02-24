@@ -27,5 +27,10 @@
     "slug": "s",
     "name": "Sunflow frontend",
     "repoUrl": "https://gitlab.prestavale.mx/zazpayv2/sunflow"
+  },
+  {
+    "slug": "promoters",
+    "name": "promoters-ms",
+    "repoUrl": "https://gitlab.prestavale.mx/zazpayv2/promoters-ms.git"
   }
 ]

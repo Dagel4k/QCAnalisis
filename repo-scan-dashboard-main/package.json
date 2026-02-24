@@ -117,17 +117,60 @@
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "server/**/*",
+      "src/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../lib",
+        "to": "lib",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../types",
+        "to": "types",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../package.json",
+        "to": "package.json"
+      },
+      {
+        "from": "../generate-html-lint-report.js",
+        "to": "generate-html-lint-report.js"
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": ["dmg", "zip"]
+      "icon": "icon.png",
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ]
     },
     "linux": {
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     }
   }
 }

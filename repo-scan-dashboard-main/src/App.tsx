@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HashRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
 import { lazy, Suspense, useEffect, useState, Fragment } from "react";
 const RepoDetail = lazy(() => import("./pages/repo-detail"));
@@ -35,7 +35,7 @@ const App = () => {
     <Provider>
       {ToasterComp ? <ToasterComp /> : null}
       {SonnerComp ? <SonnerComp /> : null}
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route
@@ -57,7 +57,7 @@ const App = () => {
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </Provider>
   );
 };
