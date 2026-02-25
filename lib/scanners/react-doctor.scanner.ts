@@ -38,23 +38,34 @@ export class ReactDoctorScanner extends BaseScanner {
                 return [];
             }
 
-            return result.diagnostics.map((diag: any) =>
-                this.createIssue(
-                    diag.severity === 'error' ? 'high' : 'medium',
-                    diag.message,
-                    diag.filePath,
-                    diag.line,
-                    {
-                        col: diag.column,
-                        code: diag.rule,
-                        context: {
-                            plugin: diag.plugin,
-                            category: diag.category,
-                            help: diag.help
+            return result.diagnostics
+                .filter((diag: any) => {
+                    // Ignorar la regla duplicada de archivos no usados (knip ya reporta knip/unused-file)
+                    if (diag.rule === 'files' || diag.plugin === 'files') return false;
+
+                    // Ignorar TODAS las reglas estrictas de formato 'unicorn' para evitar ruido innecesario
+                    // (Ej. unicorn/no-null, unicorn/prevent-abbreviations)
+                    if (diag.rule && diag.rule.startsWith('unicorn/')) return false;
+
+                    return true;
+                })
+                .map((diag: any) =>
+                    this.createIssue(
+                        diag.severity === 'error' ? 'high' : 'medium',
+                        diag.message,
+                        diag.filePath,
+                        diag.line,
+                        {
+                            col: diag.column,
+                            code: diag.rule,
+                            context: {
+                                plugin: diag.plugin,
+                                category: diag.category,
+                                help: diag.help
+                            }
                         }
-                    }
-                )
-            );
+                    )
+                );
         } catch (error: any) {
             context.logger.log(`[React Doctor] Error al ejecutar: ${error.message}`);
             return [];
