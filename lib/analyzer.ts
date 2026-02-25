@@ -80,15 +80,34 @@ export class Analyzer {
             'warning': 1, 'warn': 1, 'info': 1, 'medium': 1, 'low': 1
         };
 
+        const seenIssues = new Set<string>();
+
         scanResults.forEach(result => {
+            const uniqueIssues: Issue[] = [];
+
             result.issues.forEach(issue => {
                 const s = String(issue.severity || '').toLowerCase();
                 const sev = sevMap[s] || 1;
+
+                // Deduplicate based on file, line, and rule code (or message as fallback)
+                let ruleCode = issue.context?.code || issue.message || 'unknown';
+                const issueHash = `${issue.file}:${issue.line}:${ruleCode}`;
+
+                if (seenIssues.has(issueHash)) {
+                    return; // Skip this duplicate issue
+                }
+
+                seenIssues.add(issueHash);
+                uniqueIssues.push(issue);
+
                 if (sev === 2) totalErrors++;
                 else totalWarnings++;
 
                 if (issue.file) allFiles.add(issue.file);
             });
+
+            // Replace the result issues with the deduplicated array
+            result.issues = uniqueIssues;
         });
 
         return {
