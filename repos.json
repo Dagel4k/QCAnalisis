@@ -32,5 +32,10 @@
     "slug": "promoters",
     "name": "promoters-ms",
     "repoUrl": "https://gitlab.prestavale.mx/zazpayv2/promoters-ms.git"
+  },
+  {
+    "slug": "promoters1",
+    "name": "promoters-ms",
+    "repoUrl": "https://gitlab.prestavale.mx/zazpayv2/promoters-ms.git"
   }
 ]

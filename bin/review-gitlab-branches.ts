@@ -12,6 +12,7 @@ import { GitleaksScanner } from '../lib/scanners/gitleaks.scanner';
 import { OsvScanner } from '../lib/scanners/osv.scanner';
 import { JscpdScanner } from '../lib/scanners/jscpd.scanner';
 import { EslintScanner } from '../lib/scanners/eslint.scanner';
+import { ReactDoctorScanner } from '../lib/scanners/react-doctor.scanner';
 
 const { version } = require('../package.json');
 
@@ -56,14 +57,14 @@ program
   .action(async (opts: any) => {
     console.log(`[CLI] Starting analysis for ${opts.repo}`);
 
-    // Instantiate Scanners (Composition Root)
     const scanners = [
       new EslintScanner(),
       new KnipScanner(),
       new SemgrepScanner(),
       new GitleaksScanner(),
       new OsvScanner(),
-      new JscpdScanner()
+      new JscpdScanner(),
+      new ReactDoctorScanner()
     ];
 
     const options: OrchestratorOptions = {
