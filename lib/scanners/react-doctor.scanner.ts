@@ -40,12 +40,21 @@ export class ReactDoctorScanner extends BaseScanner {
 
             return result.diagnostics
                 .filter((diag: any) => {
-                    // Ignorar la regla duplicada de archivos no usados (knip ya reporta knip/unused-file)
-                    if (diag.rule === 'files' || diag.plugin === 'files') return false;
+                    const ruleCode = String(diag.rule || '').toLowerCase();
+                    const pluginName = String(diag.plugin || '').toLowerCase();
 
-                    // Ignorar TODAS las reglas estrictas de formato 'unicorn' para evitar ruido innecesario
-                    // (Ej. unicorn/no-null, unicorn/prevent-abbreviations)
-                    if (diag.rule && diag.rule.startsWith('unicorn/')) return false;
+                    // Ignorar reportes de archivos, exports o tipos duplicados (ya los reporta knip local)
+                    if (
+                        ['files', 'exports', 'types', 'dependencies'].includes(ruleCode) ||
+                        ['files', 'exports', 'types', 'dependencies'].includes(pluginName)
+                    ) {
+                        return false;
+                    }
+
+                    // Ignorar la policía de formato "Unicorn" completa
+                    if (ruleCode.startsWith('unicorn') || pluginName.includes('unicorn')) {
+                        return false;
+                    }
 
                     return true;
                 })
