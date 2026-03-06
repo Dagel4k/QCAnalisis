@@ -37,7 +37,7 @@ npm run dev
 # Open http://localhost:8080
 ```
 
-- **Repos:** Manage via `repo-scan-dashboard-main/repos.json` or UI.
+- **Repos:** Manage via `repos.json` in the project root or the UI.
 - **Reports:** Stored in `storage/<repo-slug>/`.
 
 ### 2. CLI: Ad-hoc Analysis
@@ -85,7 +85,11 @@ node bin/review-gitlab-branches.js \
 
 ### Repositories
 
-Manage the list of repositories available in the Dashboard by editing `repo-scan-dashboard-main/repos.json`:
+Manage the list of repositories available in the Dashboard by editing `repos.json` in the project root. You can copy `repos.example.json` to get started:
+
+```bash
+cp repos.example.json repos.json
+```
 
 ```json
 [

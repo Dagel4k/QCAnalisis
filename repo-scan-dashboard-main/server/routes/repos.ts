@@ -350,7 +350,9 @@ reposRouter.get('/:slug/reports/:id/logs', (req, res) => {
 // NOTE: This is intended for local usage to quickly load repos.json.
 reposRouter.post('/import-default', (req, res) => {
   try {
-    const sourcePath = '/Users/daniel/Downloads/scriptCCode/repos.json';
+    // Try to find repos.json in the project root or current directory
+    const projectRoot = path.join(config.storageDir, '..');
+    const sourcePath = path.join(projectRoot, 'repos.json');
     if (!fs.existsSync(sourcePath)) {
       return res.status(404).json({ error: `repos.json not found at ${sourcePath}` });
     }

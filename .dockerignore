@@ -7,6 +7,10 @@ dist
 build
 .env
 .DS_Store
+repos.json
+errores.json
+report*.json
+favicon.ico
 *.log
 npm-debug.log*
 yarn-debug.log*

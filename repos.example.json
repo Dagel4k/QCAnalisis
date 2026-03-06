@@ -1,0 +1,8 @@
+[
+  {
+    "slug": "example-repo",
+    "name": "Example Repository",
+    "repoUrl": "https://gitlab.com/username/example-repo.git",
+    "description": "An example repository for testing purposes."
+  }
+]

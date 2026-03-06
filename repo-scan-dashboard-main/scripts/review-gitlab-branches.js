@@ -250,13 +250,18 @@ async function main() {
 
   // Resolver ruta del script de reporte
   let reportScript = opts.reportScript;
-  const absolutePreferred = '/Users/daniel/Downloads/scriptCCode/generate-html-lint-report.js';
   if (!reportScript) {
-    if (fs.existsSync(absolutePreferred)) {
-      reportScript = absolutePreferred;
-    } else {
-      const localCandidate = path.join(rootDir, 'generate-html-lint-report.js');
-      if (fs.existsSync(localCandidate)) reportScript = localCandidate;
+    // Try common relative locations
+    const candidates = [
+      path.join(rootDir, 'generate-html-lint-report.js'),
+      path.join(rootDir, 'scripts', 'generate-html-lint-report.js'),
+      path.join(__dirname, 'generate-html-lint-report.js')
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) {
+        reportScript = c;
+        break;
+      }
     }
   }
   if (!reportScript || !fs.existsSync(reportScript)) {

@@ -32,11 +32,18 @@ verification_reports*/
 packages/dev-tools/*.tgz
 *.tgz
 
+# Local Data & Reports
+repos.json
+errores.json
+report*.json
+lint-summary.json
+analysis.log
+*.epub
+
 # OS/editor
 .idea/
 .vscode/
 *.swp
 
 # Misc large files not for VCS
-libro.epub
 GEMINI.md
