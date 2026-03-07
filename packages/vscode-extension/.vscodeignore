@@ -1,0 +1,21 @@
+# Archivos de desarrollo — no van en el .vsix
+.vscode/**
+src/**
+scripts/**
+tsconfig.json
+package-lock.json
+dist/**/*.js.map
+
+# Archivos de sonarjs que no se necesitan en runtime
+node_modules/eslint-plugin-sonarjs/docs/**
+node_modules/eslint-plugin-sonarjs/types/**
+
+# Archivos de security que no se necesitan en runtime
+node_modules/eslint-plugin-security/docs/**
+
+# Tests y configs de los paquetes incluidos
+node_modules/**/test/**
+node_modules/**/*.spec.js
+node_modules/**/.eslintrc*
+node_modules/**/README.md
+node_modules/**/CHANGELOG.md

@@ -29,7 +29,10 @@ const commonOptions = {
     platform: 'node',
     target: 'node18', // VS Code >= 1.75 usa Node 16+, pero Node 18 es seguro para LS actual
     format: 'cjs',
-    external: ['vscode'], // No bundleamos vscode, es proveído por el entorno
+    // vscode: provisto por el Extension Host, nunca se bundlea
+    // espree: eslint/rule-tester lo referencia con require.resolve() en un path que
+    //         nunca se ejecuta en producción; marcarlo external silencia el warning de esbuild
+    external: ['vscode', 'espree'],
     logLevel: 'info'
 };
 
