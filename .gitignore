@@ -23,6 +23,7 @@ reports/
 storage/
 repo-scan-dashboard-main/storage/
 repo-scan-dashboard-main/.work/
+*.vsix
 
 # Internal Verification & Temp dirs
 .verification_work*/
