@@ -4,7 +4,7 @@
 
 > Detect security vulnerabilities and code smells **as you type** — no configuration needed.
 
-![ScriptC detecting a vulnerability](demo.gif)
+![ScriptC detecting a vulnerability](https://raw.githubusercontent.com/Dagel4k/QCAnalisis/main/packages/vscode-extension/demo.gif)
 
 ---
 
