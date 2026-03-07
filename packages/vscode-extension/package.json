@@ -24,6 +24,8 @@
     "watch": "node scripts/build.js --watch"
   },
   "dependencies": {
+    "eslint-plugin-security": "^4.0.0",
+    "eslint-plugin-sonarjs": "^4.0.1",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {

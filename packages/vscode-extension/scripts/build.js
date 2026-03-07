@@ -46,11 +46,24 @@ async function main() {
     ctxs.push(extensionCtx);
 
     // 2. Bundle del Servidor LSP
-    // Empaquetamos todo el código de QCAnalisis necesario, incl. plugins de ESLint
+    // Empaquetamos el código de QCAnalisis + sus dependencias resolubles desde el root.
+    //
+    // sonarjs y security se mantienen como external porque:
+    //  a) Viven en packages/dev-tools/node_modules (no hoisted al root), así que esbuild
+    //     no puede encontrarlos sin manipulación de nodePaths.
+    //  b) sonarjs v4 usa require(`./rules/${rule}`) con template literal + array estático;
+    //     esbuild lo intenta bundlear pero los archivos .js.map satélite rompen el proceso.
+    //  Al declararlos external, se mantienen como require() dinámicos en el bundle y
+    //  Node los resuelve en runtime desde packages/vscode-extension/node_modules/.
     const serverCtx = await esbuild.context({
         ...commonOptions,
         entryPoints: ['../../bin/lsp-server.ts'],
         outfile: 'dist/server.js',
+        external: [
+            ...commonOptions.external,
+            'eslint-plugin-sonarjs',
+            'eslint-plugin-security',
+        ],
     });
     ctxs.push(serverCtx);
 
