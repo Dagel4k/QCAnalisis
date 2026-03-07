@@ -1,8 +1,8 @@
 {
   "name": "scriptc-linter",
-  "displayName": "ScriptC Linter",
-  "description": "Real-time static analysis powered by ScriptC. Detects vulnerabilities, bad practices, and hardcoded secrets as you type.",
-  "version": "0.0.2",
+  "displayName": "ScriptC: Real-time Security & Quality Auditor",
+  "description": "Detect security vulnerabilities and code smells as you type. Zero-config: includes SonarJS + ESLint Security out of the box.",
+  "version": "0.0.4",
   "icon": "logo.png",
   "publisher": "dagel4k",
   "author": "Daniel Pereda Chaidez",
@@ -11,7 +11,20 @@
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Linters"
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "linter",
+    "sast",
+    "sonarjs",
+    "code-quality",
+    "static-analysis",
+    "typescript",
+    "javascript",
+    "zero-config",
+    "code-smell"
   ],
   "activationEvents": [
     "onLanguage:javascript",
@@ -28,7 +41,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Dagel4k/QCAnalisis"
+    "url": "https://github.com/Dagel4k/QCAnalisis",
+    "directory": "packages/vscode-extension"
   },
   "dependencies": {
     "eslint-plugin-security": "^4.0.0",

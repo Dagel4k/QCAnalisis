@@ -1,42 +1,78 @@
-# ScriptC Linter
+# ScriptC: Real-time Security & Quality Auditor
 
-Real-time static analysis for JavaScript and TypeScript, directly in VS Code.
+[English](#why-scriptc) | [Español](#por-qué-scriptc)
 
-Detects security vulnerabilities, bad practices, and low-quality code **as you type** — no need to commit or wait for a CI pipeline.
+> Detect security vulnerabilities and code smells **as you type** — no configuration needed.
 
-**Repository:** [github.com/Dagel4k/QCAnalisis](https://github.com/Dagel4k/QCAnalisis)
+![ScriptC detecting a vulnerability](demo.gif)
 
 ---
 
-## Features
+## Why ScriptC?
 
-- **Instant feedback** — Issues appear underlined in the editor in real time
-- **Zero configuration** — Works out of the box with a strict set of default rules
-- **Project-aware** — If your project already has ESLint configured, ScriptC uses it instead of its own rules
-- **Lightweight** — Analysis runs in a separate process (LSP server); the IDE stays responsive
+Most security linters are heavy, require complex setup, or only run in your CI pipeline. ScriptC is different:
 
-## Included rules
+| Feature | ScriptC | Typical linter |
+|---|---|---|
+| Setup required | None | ESLint config + plugins |
+| Runs in editor | Yes, real-time | Only on save or CI |
+| Security rules | Included | Manual install |
+| Editor performance | Lightweight LSP | Can slow editor down |
 
-When the project has no ESLint config, ScriptC applies a curated set of rules from:
+- **Instant feedback** — Catch vulnerabilities before you even save the file.
+- **Zero configuration** — Works out of the box with curated rules.
+- **Lightweight** — Runs in a separate LSP process; your editor stays fast.
+- **Project-aware** — If you have a local ESLint config, ScriptC uses it instead.
 
-| Plugin | Covers |
-|---|---|
-| `@typescript-eslint` | Unsafe types, unused variables, problematic TS patterns |
-| `sonarjs` | Duplicated code, unnecessary complexity, dead code |
-| `security` | `eval` usage, code injection, unsanitized paths |
+### What ScriptC analyzes
 
-## Supported languages
+When no local ESLint config is found, ScriptC applies a strict baseline:
 
-- JavaScript (`.js`, `.jsx`)
-- TypeScript (`.ts`, `.tsx`)
+- **@typescript-eslint** — Unsafe types and risky TypeScript patterns.
+- **SonarJS** — Cognitive complexity, dead code, and logic smells.
+- **ESLint Security** — `eval` usage, unsanitized inputs, and path injection risks.
+
+---
 
 ## Usage
 
-Install the extension. Open any `.ts` or `.js` file. Diagnostics appear automatically in the **Problems** panel (`Cmd+Shift+M`) and as underlines in the editor.
+1. Install the extension from the Marketplace.
+2. Open any `.ts`, `.tsx`, `.js`, or `.jsx` file.
+3. Diagnostics appear as underlines in the editor and in the **Problems** panel (`Cmd+Shift+M` / `Ctrl+Shift+M`).
 
-To view the LSP client–server communication logs, go to **View → Output → ScriptC Linter**.
+To see server logs: **View → Output → ScriptC Linter**.
 
-## Development
+No `.eslintrc`. No `npm install`. Just open the file.
 
-See the repository for local development instructions and contribution guidelines:
-[github.com/Dagel4k/QCAnalisis](https://github.com/Dagel4k/QCAnalisis)
+---
+
+## ¿Por qué ScriptC?
+
+La mayoría de los linters de seguridad son pesados, requieren configuración compleja, o solo se ejecutan en el CI. ScriptC es diferente:
+
+- **Feedback inmediato** — Detecta vulnerabilidades mientras escribes, antes de guardar.
+- **Configuración cero** — Funciona sin instalar nada en tu proyecto.
+- **Ligero** — Corre en un proceso LSP separado; tu editor no se frena.
+- **Respetuoso** — Si ya tienes ESLint configurado, ScriptC usa tus reglas.
+
+### Qué analiza ScriptC
+
+Cuando no hay configuración local de ESLint, aplica estas reglas por defecto:
+
+- **@typescript-eslint** — Tipos inseguros y patrones problemáticos de TypeScript.
+- **SonarJS** — Complejidad cognitiva, código muerto y errores de lógica.
+- **ESLint Security** — Uso de `eval`, entradas no sanitizadas e inyección de rutas.
+
+### Cómo usarlo
+
+1. Instala la extensión desde el Marketplace.
+2. Abre cualquier archivo `.ts`, `.tsx`, `.js`, o `.jsx`.
+3. Los diagnósticos aparecen como subrayados en el editor y en el panel **Problemas** (`Cmd+Shift+M` / `Ctrl+Shift+M`).
+
+Sin `.eslintrc`. Sin `npm install`. Solo abre el archivo.
+
+---
+
+## Repository
+
+[github.com/Dagel4k/QCAnalisis/tree/main/packages/vscode-extension](https://github.com/Dagel4k/QCAnalisis/tree/main/packages/vscode-extension)
