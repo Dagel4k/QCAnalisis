@@ -2,8 +2,11 @@
   "name": "scriptc-linter",
   "displayName": "ScriptC Linter",
   "description": "Real-time static analysis powered by ScriptC. Detects vulnerabilities, bad practices, and hardcoded secrets as you type.",
-  "version": "0.0.1",
-  "publisher": "scriptc",
+  "version": "0.0.2",
+  "icon": "logo.png",
+  "publisher": "dagel4k",
+  "author": "Daniel Pereda Chaidez",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"
   },
